@@ -768,33 +768,33 @@ def render_rrnrbl_checklist(rows):
        punched the gaps through each coloured row. */
     [data-testid="stElementContainer"]:has(> div > .qkx-row-match) + [data-testid="stElementContainer"] .qkx-chk-cell,
     [data-testid="stElementContainer"]:has(> div > .qkx-row-match) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-match) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {
-        background:#e8f7ef !important; }
+    [data-testid="stElementContainer"]:has(> div > .qkx-row-match) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
+        background:#e8f7ef !important; }}
     [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] .qkx-chk-cell,
     [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {
-        background:#fdeaea !important; }
+    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
+        background:#fdeaea !important; }}
     [data-testid="stElementContainer"]:has(> div > .qkx-row-manual) + [data-testid="stElementContainer"] .qkx-chk-cell,
     [data-testid="stElementContainer"]:has(> div > .qkx-row-manual) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-manual) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {
-        background:#fff8e6 !important; }
+    [data-testid="stElementContainer"]:has(> div > .qkx-row-manual) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
+        background:#fff8e6 !important; }}
     [data-testid="stElementContainer"]:has(> div > .qkx-row-info) + [data-testid="stElementContainer"] .qkx-chk-cell,
     [data-testid="stElementContainer"]:has(> div > .qkx-row-info) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-info) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {
-        background:#eaf2fb !important; }
+    [data-testid="stElementContainer"]:has(> div > .qkx-row-info) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
+        background:#eaf2fb !important; }}
     [data-testid="stElementContainer"]:has(> div > .qkx-row-unknown) + [data-testid="stElementContainer"] .qkx-chk-cell,
     [data-testid="stElementContainer"]:has(> div > .qkx-row-unknown) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-unknown) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {
-        background:#f4f6f8 !important; }
+    [data-testid="stElementContainer"]:has(> div > .qkx-row-unknown) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
+        background:#f4f6f8 !important; }}
     [data-testid="stElementContainer"]:has(> div > .qkx-row-na) + [data-testid="stElementContainer"] .qkx-chk-cell,
     [data-testid="stElementContainer"]:has(> div > .qkx-row-na) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-na) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {
-        background:#f4f6f8 !important; }
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] .qkx-chk-cell {
-        color:#9f1d1d; font-weight:600; }
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] [data-testid="stTextInput"] input {
-        color:#9f1d1d !important; font-weight:600; }
-    .qkx-row-marker { height:0; margin:0; padding:0; }
+    [data-testid="stElementContainer"]:has(> div > .qkx-row-na) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
+        background:#f4f6f8 !important; }}
+    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] .qkx-chk-cell {{
+        color:#9f1d1d; font-weight:600; }}
+    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] [data-testid="stTextInput"] input {{
+        color:#9f1d1d !important; font-weight:600; }}
+    .qkx-row-marker {{ height:0; margin:0; padding:0; }}
     </style>
     """, unsafe_allow_html=True)
 
