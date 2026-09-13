@@ -799,7 +799,9 @@ def render_rrnrbl_checklist(rows):
             last_cat, last_sub = r["cat"], r.get("sub")
 
         key = f'rrnrbl_{r["row"]}'
-        default_checked = r["status"] == "match"
+        # Ticked = the check was carried out, not that it passed — a
+        # mismatch row is still ticked, with the finding in Remarks.
+        default_checked = True
         default_comment = "" if r["status"] == "manual" else (r.get("detail") or "")
         tick, color = STATUS_TICK.get(r["status"], ("\u2013", "#94a3b8"))
         bg = STATUS_BG.get(r["status"], "#f1f3f6")
@@ -837,7 +839,7 @@ def collect_manual_overrides(checklist):
     overrides = {}
     for row in checklist:
         r = row["row"]
-        default_checked = row["status"] == "match"
+        default_checked = True
         overrides[r] = {
             "checked": st.session_state.get(f"rrnrbl_{r}_checked", default_checked),
             "comment": st.session_state.get(f"rrnrbl_{r}_comment", ""),
