@@ -106,18 +106,44 @@ def _pre_detected_status(node_logs_text, what):
             n = sum(1 for v in refs.values() if v.get("sef_branches") or v.get("tx_ref"))
             label = "cells with RfBranch refs"
         elif what == "sharing":
+            import band_labels as bl
             fru = pe.extract_cell_to_fru(text)
-            counts = {}
+            # Radio sharing = two or more sectors OF THE SAME BAND landing
+            # on one physical radio.
+            #
+            # Both qualifiers matter, and getting either wrong produced a
+            # false positive on a real site:
+            #   - several cells on one radio is NOT sharing (RRU-7 carries
+            #     2A_1, 2A_3, 9A_1, N002A_1 — ordinary multi-carrier), and
+            #   - several BANDS on one radio is NOT sharing either (that
+            #     same RRU-7 carries AWS, PCS and 5G_PCS, all sector Alpha).
+            # Only a repeated SECTOR within one band on one radio counts.
+            #
+            # band_label() returns (band_with_carrier, sector) — the
+            # carrier index is stripped so AWS_1 and AWS_3 compare as one
+            # band, and its sector name is used rather than re-parsing the
+            # cell name.
+            sectors_by_radio_band = {}
             for cell, f in fru.items():
-                if f and f != "-":
-                    counts[f] = counts.get(f, 0) + 1
-            n = sum(1 for c in counts.values() if c > 1)
-            label = "radios shared by >1 cell"
-            # A site with no shared radio is a legitimate design, but that
-            # is only knowable if radio data was actually read. Track
-            # whether ANY radio was seen so 'no sharing' can be told apart
-            # from 'nothing parsed'.
-            if counts:
+                if not f or f == "-":
+                    continue
+                label, sector = bl.band_label(cell)
+                if not label or not sector:
+                    continue
+                band = re.sub(r'_\d+$', '', str(label))
+                sectors_by_radio_band.setdefault((f, band), set()).add(sector)
+            shared = {k: v for k, v in sectors_by_radio_band.items() if len(v) > 1}
+            n = len(shared)
+            label = "radio/band combination(s) carrying 2+ sectors"
+            if shared:
+                detail = "; ".join(f"{f} {b}: {', '.join(sorted(secs))}"
+                                   for (f, b), secs in sorted(shared.items()))
+                found.append(f"{nid}: {detail}")
+                continue
+            # 'No sharing' is a legitimate design, but only knowable if
+            # radio data was actually read — track that so it can be told
+            # apart from 'nothing parsed'.
+            if sectors_by_radio_band:
                 any_radio_data = True
         else:
             return "unknown", f"Unknown detection target '{what}'."
