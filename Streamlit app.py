@@ -718,7 +718,9 @@ def render_rrnrbl_checklist(rows):
                    "info": ("i", "#2563eb"), "na": ("\u2013", "#94a3b8")}
     STATUS_BG = {"match": "#eafaf1", "mismatch": "#fdecea", "manual": "#fff8e5",
                  "unknown": "#f1f3f6", "info": "#eaf2fb", "na": "#f1f3f6"}
-    COLS = [0.06, 0.36, 0.06, 0.08, 0.44]
+    # Remarks carries the actual finding text, so it gets the most room;
+    # Check names are truncated with an ellipsis + hover title instead.
+    COLS = [0.05, 0.28, 0.05, 0.07, 0.55]
     # Row colour is applied TWO ways on purpose:
     #   1. inline background on each markdown cell  — always works.
     #   2. :has() rules below for the checkbox / text-input columns, whose
@@ -777,6 +779,28 @@ def render_rrnrbl_checklist(rows):
         height:calc({ROW_H} - 2px) !important; min-height:0 !important; padding:0 6px !important;
         font-size:0.78em !important; border-radius:0 !important;
         background:transparent !important; box-shadow:none !important; }}
+
+    /* The vertical gap BETWEEN rows lives on the vertical block that holds
+       them, not on each row — without this the rows sit far apart even
+       though every row itself is only {ROW_H} tall. */
+    [data-testid="stVerticalBlock"]:has(.qkx-crow) {{ gap:0rem !important; }}
+
+    /* Kill every inherited min-height/margin inside the two widget columns.
+       Streamlit's input wrapper carries its own baseweb padding, which was
+       pushing the checkbox and the Remarks box below their row's baseline. */
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] *,
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] * {{
+        min-height:0 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div,
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div > div {{
+        width:100% !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div > div {{
+        height:100% !important; border:none !important; background:transparent !important;
+        padding:0 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] > label,
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] > div {{
+        align-self:center !important; }}
 
     /* whole-row tint, including the two widget columns */
     [data-testid="stHorizontalBlock"]:has(.qkx-row-match) [data-testid="stCheckbox"],
