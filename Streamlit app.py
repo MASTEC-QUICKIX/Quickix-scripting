@@ -730,62 +730,74 @@ def render_rrnrbl_checklist(rows):
     ROW_H = "24px"
     st.markdown(f"""
     <style>
-    .qkx-chk-wrap {{ max-width: 1120px; border:1px solid #cbd5e1; border-radius:5px;
-                     overflow:hidden; margin-bottom:12px; }}
-    .qkx-chk-wrap [data-testid="stVerticalBlock"] {{ gap: 0rem !important; }}
-    .qkx-chk-wrap [data-testid="stElementContainer"] {{ margin: 0 !important; }}
-    .qkx-chk-wrap [data-testid="column"] {{ padding: 0 !important; }}
-    .qkx-chk-wrap [data-testid="stHorizontalBlock"] {{ gap: 0rem !important; align-items:stretch !important; }}
+    /* NOTE ON SCOPING: the '<div class="qkx-chk-wrap">' opener is emitted by
+       its own st.markdown call, so Streamlit closes it immediately — the
+       rows that follow are SIBLINGS of it, never children. Every rule
+       written as '.qkx-chk-wrap [data-testid=...]' therefore matched
+       nothing, which is why the Tick/Remarks columns stayed white and the
+       rows sat far apart. Rows are instead identified by the marker span
+       each one emits inside its first column, so :has() scopes to the real
+       row element. */
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow),
+    [data-testid="stHorizontalBlock"]:has(.qkx-chk-hdr) {{
+        gap:0rem !important; align-items:stretch !important; margin:0 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="column"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-chk-hdr) [data-testid="column"] {{
+        padding:0 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stElementContainer"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-chk-hdr) [data-testid="stElementContainer"] {{
+        margin:0 !important; }}
 
     .qkx-chk-hdr {{ background:#1e3a5f; color:#fff; font-weight:700; font-size:0.72em;
                    letter-spacing:.03em; text-transform:uppercase;
-                   padding:0 8px; height:28px; display:flex; align-items:center;
+                   padding:0 8px; height:26px; display:flex; align-items:center;
                    justify-content:center; border-right:1px solid #33507a; }}
     .qkx-chk-hdr.left {{ justify-content:flex-start; }}
     .qkx-chk-cat2 {{ background:#22406b; color:#fff; font-weight:700; font-size:0.78em;
-                    padding:0 10px; height:26px; display:flex; align-items:center;
-                    letter-spacing:.01em; border-top:1px solid #14283f; }}
+                    padding:0 10px; height:24px; display:flex; align-items:center; }}
 
     .qkx-chk-cell {{ padding:0 8px; border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0;
                     height:{ROW_H}; display:flex; align-items:center; font-size:0.78em;
                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
-    .qkx-rs {{ display:none; }}
 
-    .qkx-chk-wrap [data-testid="stCheckbox"], .qkx-chk-wrap [data-testid="stTextInput"] {{
+    /* widget columns: strip Streamlit's chrome and match the cell height */
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] {{
         border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0;
-        height:{ROW_H}; min-height:{ROW_H}; display:flex; align-items:center;
-    }}
-    .qkx-chk-wrap [data-testid="stCheckbox"] {{ justify-content:center; }}
-    .qkx-chk-wrap [data-testid="stCheckbox"] label {{ padding:0 !important; margin:0 !important; }}
-    .qkx-chk-wrap [data-testid="stCheckbox"] div[role="checkbox"] {{
-                    width:14px !important; height:14px !important; border-radius:2px !important; }}
-    .qkx-chk-wrap [data-testid="stCheckbox"] div[role="checkbox"][aria-checked="true"] {{
-                    background:#059669 !important; border-color:#059669 !important; }}
-    .qkx-chk-wrap [data-testid="stTextInput"] > div {{ border:none !important; background:transparent !important;
-                    height:{ROW_H} !important; min-height:{ROW_H} !important; }}
-    .qkx-chk-wrap [data-testid="stTextInput"] input {{ height:calc({ROW_H} - 2px) !important;
-                    min-height:0 !important; padding:0 6px !important; font-size:0.78em !important;
-                    border-radius:0 !important; background:transparent !important; box-shadow:none !important; }}
+        height:{ROW_H}; min-height:{ROW_H}; display:flex; align-items:center; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] {{ justify-content:center; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] label {{
+        padding:0 !important; margin:0 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] div[role="checkbox"] {{
+        width:13px !important; height:13px !important; border-radius:2px !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div {{
+        border:none !important; background:transparent !important;
+        height:{ROW_H} !important; min-height:{ROW_H} !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] input {{
+        height:calc({ROW_H} - 2px) !important; min-height:0 !important; padding:0 6px !important;
+        font-size:0.78em !important; border-radius:0 !important;
+        background:transparent !important; box-shadow:none !important; }}
 
-    /* widget columns inherit the row colour via the in-row marker */
+    /* whole-row tint, including the two widget columns */
     [data-testid="stHorizontalBlock"]:has(.qkx-row-match) [data-testid="stCheckbox"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-match) [data-testid="stTextInput"] {{ background:#e8f7ef !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-match) [data-testid="stTextInput"] {{ background:#eafaf1 !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="stCheckbox"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="stTextInput"] {{ background:#fdeaea !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="stTextInput"] {{ background:#fdecea !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-manual) [data-testid="stCheckbox"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-manual) [data-testid="stTextInput"] {{ background:#fff8e6 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-manual) [data-testid="stTextInput"] {{ background:#fff8e5 !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-info) [data-testid="stCheckbox"],
     [data-testid="stHorizontalBlock"]:has(.qkx-row-info) [data-testid="stTextInput"] {{ background:#eaf2fb !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-unknown) [data-testid="stCheckbox"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-unknown) [data-testid="stTextInput"] {{ background:#f4f6f8 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-unknown) [data-testid="stTextInput"] {{ background:#f1f3f6 !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-na) [data-testid="stCheckbox"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-na) [data-testid="stTextInput"] {{ background:#f4f6f8 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-na) [data-testid="stTextInput"] {{ background:#f1f3f6 !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="stTextInput"] input {{
         color:#9f1d1d !important; font-weight:600; }}
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="qkx-chk-wrap">', unsafe_allow_html=True)
+    # (no wrapper div — Streamlit closes a lone opener immediately, so it
+    # never actually contained the rows; scoping is done per-row instead.)
     hc = st.columns(COLS, gap="small")
     for c, label, cls in zip(hc, ["Indication", "Check", "Tick", "Scope", "Remarks"],
                               ["", "left", "", "left", "left"]):
@@ -820,9 +832,13 @@ def render_rrnrbl_checklist(rows):
         with c0:
             # marker span rides inside the row so the :has() rules above can
             # reach the checkbox / text-input columns; it renders nothing.
-            st.markdown(f'<div class="qkx-chk-cell" style="justify-content:center;background:{bg};'
-                        f'color:{color};font-weight:800;">'
-                        f'<span class="qkx-rs {row_cls}"></span>{tick}</div>', unsafe_allow_html=True)
+            # The marker classes ride on the tick cell itself rather than an
+            # extra empty <span> — an empty element is exactly the kind of
+            # node an HTML sanitiser may drop, and losing it would silently
+            # kill every :has() rule that colours this row.
+            st.markdown(f'<div class="qkx-chk-cell qkx-crow {row_cls}" '
+                        f'style="justify-content:center;background:{bg};'
+                        f'color:{color};font-weight:800;">{tick}</div>', unsafe_allow_html=True)
         with c1:
             st.markdown(f'<div class="qkx-chk-cell" style="background:{bg};color:{txt};'
                         f'font-weight:600;" title="{esc(r["item"])}">{esc(r["item"])}</div>',
