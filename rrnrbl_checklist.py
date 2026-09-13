@@ -655,6 +655,48 @@ _FPB_CONTENT_TYPE = "application/vnd.ms-excel.featurepropertybag+xml"
 _FPB_REL_TYPE = "http://schemas.microsoft.com/office/2022/11/relationships/FeaturePropertyBag"
 
 
+def _template_checkbox_xf(template_path):
+    """(index, extLst_xml) of the cellXfs <xf> in the template that carries
+    the checkbox xfComplement extension, or (None, None)."""
+    import zipfile
+    with zipfile.ZipFile(template_path) as tz:
+        if "xl/styles.xml" not in tz.namelist():
+            return None, None
+        st = tz.read("xl/styles.xml").decode("utf-8")
+    m = re.search(r"<cellXfs[^>]*>(.*?)</cellXfs>", st, re.S)
+    if not m:
+        return None, None
+    for i, xf in enumerate(re.findall(r"<xf [^>]*/>|<xf .*?</xf>", m.group(1), re.S)):
+        ext = re.search(r"<extLst>.*?</extLst>", xf, re.S)
+        if ext and "xfComplement" in ext.group(0):
+            return i, ext.group(0)
+    return None, None
+
+
+def _inject_xf_complement(styles_bytes, xf_index, ext_xml):
+    """Put ext_xml back onto cellXfs entry #xf_index of a saved styles.xml,
+    converting a self-closing <xf .../> into an open/close pair so the
+    extension can live inside it."""
+    if xf_index is None or not ext_xml:
+        return styles_bytes
+    st = styles_bytes.decode("utf-8")
+    m = re.search(r"(<cellXfs[^>]*>)(.*?)(</cellXfs>)", st, re.S)
+    if not m:
+        return styles_bytes
+    xfs = re.findall(r"<xf [^>]*/>|<xf .*?</xf>", m.group(2), re.S)
+    if xf_index >= len(xfs):
+        return styles_bytes
+    target = xfs[xf_index]
+    if "xfComplement" in target:
+        return styles_bytes
+    if target.endswith("/>"):
+        rebuilt = target[:-2] + ">" + ext_xml + "</xf>"
+    else:
+        rebuilt = target[: target.rindex("</xf>")] + ext_xml + "</xf>"
+    xfs[xf_index] = rebuilt
+    return (st[: m.start(2)] + "".join(xfs) + st[m.end(2):]).encode("utf-8")
+
+
 def _restore_native_checkboxes(filled_bytes, template_path):
     """openpyxl's save() silently drops xl/featurePropertyBag/featurePropertyBag.xml
     - the part that marks C-column cells as Excel's native interactive
@@ -672,11 +714,29 @@ def _restore_native_checkboxes(filled_bytes, template_path):
             return filled_bytes  # template has no native checkboxes to restore
         fpb_xml = tz.read(_FPB_PART)
 
+    # The bag alone is NOT what renders a checkbox. The binding lives in
+    # xl/styles.xml: the checkbox cells use a specific <xf> that carries
+    #   <extLst><ext uri="{C7286773-...}"><xfpb:xfComplement i="0"/></ext></extLst>
+    # openpyxl rewrites styles.xml from its own object model and drops that
+    # extension (confirmed by a real round-trip: the template has 2 <extLst>
+    # blocks, the saved copy none) — which is why the download showed bare
+    # TRUE/FALSE.
+    #
+    # The extension is re-injected into the xf that the checkbox cells
+    # actually use, rather than copying the template's styles.xml wholesale:
+    # openpyxl APPENDS style entries when it saves, so the saved sheet
+    # references xf indices beyond the template's table and swapping the
+    # whole part produces a workbook Excel/openpyxl cannot open
+    # (IndexError: list index out of range — verified).
+    ck_xf_idx, ck_ext = _template_checkbox_xf(template_path)
+
     out = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(filled_bytes)) as src, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
         for item in src.infolist():
             data = src.read(item.filename)
-            if item.filename == "[Content_Types].xml":
+            if item.filename == "xl/styles.xml" and ck_ext is not None:
+                data = _inject_xf_complement(data, ck_xf_idx, ck_ext)
+            elif item.filename == "[Content_Types].xml":
                 text = data.decode("utf-8")
                 if _FPB_PART.split("xl/")[1] not in text and "featurePropertyBag" not in text:
                     text = text.replace(
