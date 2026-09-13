@@ -565,7 +565,8 @@ def render_pre_vs_edp_pivot_table(rows):
     rrnrbl_checklist.build_pre_vs_edp_pivot_rows()."""
     if not rows:
         return '<div class="qkx-empty">No data.</div>'
-    groups = [("Bearer VLAN", "bearer_vlan"), ("Bearer IPv6", "bearer_ipv6"),
+    groups = [("SIAD Port Size", "siad_port_size"),
+              ("Bearer VLAN", "bearer_vlan"), ("Bearer IPv6", "bearer_ipv6"),
               ("Bearer Default Router", "bearer_router"), ("OAM VLAN", "oam_vlan"),
               ("OAM IPv6", "oam_ipv6"), ("OAM Default Router", "oam_router")]
     head1 = '<th rowspan="2">Node ID</th>' + "".join(
@@ -575,8 +576,16 @@ def render_pre_vs_edp_pivot_table(rows):
     for r in rows:
         cells = f"<td>{esc(r['label'])}</td>"
         for _, key in groups:
-            cells += (f'<td class="qkx-group-start">{esc(r.get(key + "_pre", ""))}</td>'
-                      f'<td>{esc(r.get(key + "_edp", ""))}</td>')
+            # Each pre/EDP pair is tinted by its OWN verdict (computed in
+            # build_pre_vs_edp_pivot_rows), so a single bad field stands out
+            # instead of the whole table rendering flat. Previously these
+            # were plain <td>s with no status at all — nothing ever
+            # highlighted here, which is what made mismatches invisible.
+            st_ = r.get(key + "_status", "unknown")
+            tint = {"mismatch": "background:#fdecea;color:#9f1d1d;font-weight:700;",
+                    "match": "background:#eafaf1;"}.get(st_, "")
+            cells += (f'<td class="qkx-group-start" style="{tint}">{esc(r.get(key + "_pre", ""))}</td>'
+                      f'<td style="{tint}">{esc(r.get(key + "_edp", ""))}</td>')
         body.append(f"<tr>{cells}</tr>")
     return (f'<div class="qkx-table-wrap"><table class="qkx-table">'
             f'<thead><tr>{head1}</tr><tr>{head2}</tr></thead>'
@@ -890,7 +899,7 @@ def run_full_validation(ciq_bytes, edp_bytes, edp_ext, rfds_bytes, node_logs_tex
     # re-parsing every uploaded Pre log again. Tabs now just read these back.
     node_role_list = rc.build_primary_secondary_node_list(ciq_wb)
     edp_field_rows = rc.build_edp_field_table(edp_rows, node_role_list)
-    pre_edp_pivot_rows = rc.build_pre_vs_edp_pivot_rows(node_logs_text, node_role_list, edp_rows) if node_logs_text else []
+    pre_edp_pivot_rows = rc.build_pre_vs_edp_pivot_rows(node_logs_text, node_role_list, edp_rows, ciq_wb) if node_logs_text else []
     amos_summary_rows, amos_lte_rows, amos_nr_rows = av.build_amos_tables(node_logs_text) if node_logs_text else ([], [], [])
 
     return dict(
