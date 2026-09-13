@@ -799,9 +799,12 @@ def render_rrnrbl_checklist(rows):
             last_cat, last_sub = r["cat"], r.get("sub")
 
         key = f'rrnrbl_{r["row"]}'
-        # Ticked = the check was carried out, not that it passed — a
-        # mismatch row is still ticked, with the finding in Remarks.
-        default_checked = True
+        # Ticked = the check was carried out, not that it passed — so an
+        # automated row is ticked even when it found a mismatch (the
+        # finding is reported in Remarks). MANUAL rows are the exception:
+        # nothing was verified automatically, so they start UNTICKED and
+        # the engineer ticks them once they have actually reviewed them.
+        default_checked = r["status"] != "manual"
         default_comment = "" if r["status"] == "manual" else (r.get("detail") or "")
         tick, color = STATUS_TICK.get(r["status"], ("\u2013", "#94a3b8"))
         bg = STATUS_BG.get(r["status"], "#f1f3f6")
@@ -839,7 +842,9 @@ def collect_manual_overrides(checklist):
     overrides = {}
     for row in checklist:
         r = row["row"]
-        default_checked = True
+        # Must match render_checklist_grid's widget default exactly, or an
+        # untouched row would export a different tick than the one shown.
+        default_checked = row["status"] != "manual"
         overrides[r] = {
             "checked": st.session_state.get(f"rrnrbl_{r}_checked", default_checked),
             "comment": st.session_state.get(f"rrnrbl_{r}_comment", ""),
