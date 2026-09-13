@@ -789,10 +789,17 @@ def fill_checklist_xlsx(checklist, site_id_fa, engineer_name=None, sow=None, dat
         user_comment = (override.get("comment") or "").strip()
 
         # The tick means "this check was carried out", NOT "it passed" — so
-        # a row is ticked even when the check found a mismatch (the finding
-        # itself is reported in the Comments column). A tick the user
-        # explicitly cleared in the UI is still honoured.
-        ws[f"C{r}"] = bool(user_checked) if user_checked is not None else True
+        # an automated row is ticked even when the check found a mismatch
+        # (the finding itself is reported in the Comments column).
+        #
+        # MANUAL rows are the exception: nothing was verified
+        # automatically, so they default to UNTICKED and only the engineer
+        # can tick them, in the UI. Ticking them here would assert a review
+        # that never happened.
+        #
+        # An explicit choice from the UI always wins, either way.
+        ws[f"C{r}"] = (bool(user_checked) if user_checked is not None
+                       else entry["status"] != "manual")
 
         label, _ = STATUS_META.get(entry["status"], ("", False))
         if user_comment:
