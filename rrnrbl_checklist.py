@@ -522,60 +522,60 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (30, "RFDS Checks", None, "NonRFInventoryDetails(Final)", "Radio", None),
         (31, "RFDS Checks", None, "CellDetails(Final) -- CellID / RCN /RRH", "Radio",
          lambda: _agg(results.get("cells_vs_rfds", []) + results.get("radio_type", []))),
-        (32, "RFDS Checks", None, "AntennaPositionDetails -- Model / LinkedCells / Azimuth(Design) / Total Positions", "Radio", None),
-        (33, "RFDS Checks", None, "Plumbing Diagram -- TxRx / TMA / Radio - RET Controller / Total Positions", "Radio", None),
+        (32, "RFDS Checks", None, "AntennaPositionDetails -- Model / LinkedCells / Azimuth(Design)  / Total Postions", "Radio", None),
+        (33, "RFDS Checks", None, "Plumbing Diagram -- TxRx / TMA / Radio - RET Controller / Total Postions", "Radio", None),
 
         (35, "CIQ tabs checks", "Revision History", "All Confirmation checks", "NR/Radio", None),
-        (36, "CIQ tabs checks", "Mixed Mode Info Tab", "eNBId and gNBId Pre vs CIQ", "NR/Radio", lambda: _agg(identity)),
-        (37, "CIQ tabs checks", "Mixed Mode Info Tab", "MME Region", "NR/Radio", lambda: _mme_region_status(ciq_wb)),
-        (38, "CIQ tabs checks", "Mixed Mode Info Tab", "Primary & secondary node matches RFDS", "Radio", lambda: _agg(results.get("primary_secondary", []))),
+        (36, "CIQ tabs checks", "Mixed Mode Info Tab", "eNBId and gNBId ENM vs CIQ", "NR/Radio", lambda: _agg(identity)),
+        (37, "CIQ tabs checks", "Mixed Mode Info Tab", "MME Region [N2E site MME Regionn should be with N-RAN,if its E-RAN,raise PI to design team]", "NR/Radio", lambda: _mme_region_status(ciq_wb)),
+        (38, "CIQ tabs checks", "Mixed Mode Info Tab", "Make sure Primary & secondary node is matching with RFDS-Non RF Inventory Details (Final)", "Radio", lambda: _agg(results.get("primary_secondary", []))),
 
-        (39, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU ENM vs CIQ", "NR/Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
-        (40, "CIQ tabs checks", "5g info", "nRTAC/cellLocalId ENM Vs CIQ", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
-        (41, "CIQ tabs checks", "5g info", "arfcnDL/arfcnUL/bSChannelBwDL ENM Vs CIQ", "NR/Radio", lambda: _agg(results.get("params_5g", []))),
-        (42, "CIQ tabs checks", "5g info", "RBB Type vs no.ofrx/tx from ENM", "Radio", lambda: _agg(results.get("params_5g", []))),
+        (39, "CIQ tabs checks", "5g info", "NRCellDU/ NRCellCU  ENM vs CIQ ", "NR/Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
+        (40, "CIQ tabs checks", "5g info", "nRTAC/ cellLocalId ENM Vs CIQ", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
+        (41, "CIQ tabs checks", "5g info", "arfcnDL/ arfcnUL and bSChannelBwDL/ bSChannelBwDL\nENM Vs CIQ", "NR/Radio", lambda: _agg(results.get("params_5g", []))),
+        (42, "CIQ tabs checks", "5g info", "RBB Type vs no.ofrx and tx from ENM", "Radio", lambda: _agg(results.get("params_5g", []))),
         (43, "CIQ tabs checks", "5g info", "DSS check", "NR/Radio", lambda: _agg(results.get("dss", []))),
-        (44, "CIQ tabs checks", "5g info", "ssbFrequency/ssbOffset/ssbDuration", "NR/Radio", lambda: _agg(results.get("params_5g", []))),
+        (44, "CIQ tabs checks", "5g info", "ssbFrequency /ssbOffset/ ssbDuration ", "NR/Radio", lambda: _agg(results.get("params_5g", []))),
         (45, "CIQ tabs checks", "5g info", "NSA/SA", "NR/Radio", lambda: _agg(results.get("nr_tac", []))),
-        (46, "CIQ tabs checks", "5g info", "BBU Type should match with RFDS and CIQ", "NR/Radio", lambda: _agg(board_type)),
-        (47, "CIQ tabs checks", "5g info", "Cell/RRU/Beam/Antenna/Tilt must same as RFDS", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
-        (48, "CIQ tabs checks", "5g info", "NR TAC - Existing sectors", "NR/Radio", lambda: _agg(results.get("nr_tac", []))),
-        (49, "CIQ tabs checks", "5g info", "NR TAC - newly added Carriers - NSA=0 & SA=7 digit", "NR/Radio", lambda: _nr_sa_tac_status(ciq_wb)),
-        (50, "CIQ tabs checks", "5g info", "6472/AIR-6449/AIR6419 - SEF/FRU", "Radio", lambda: _agg(results.get("sef_fru", []))),
-        (51, "CIQ tabs checks", "5g info", "Unique Port for 5G/LTE separate radio", "Radio", lambda: _agg(results.get("port_uniqueness", []))),
+        (46, "CIQ tabs checks", "5g info", "Make sure  BBU Type should match with RFDS and CIQ - BBU Type", "NR/Radio", lambda: _agg(board_type)),
+        (47, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU/cellLocalId/RRU Type/ BeamDirection (Azimuth) /Antenna Type /Electrical Tilt must same as RFDS ", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
+        (48, "CIQ tabs checks", "5g info", "NR TAC - Existing sectors - ENM", "NR/Radio", lambda: _agg(results.get("nr_tac", []))),
+        (49, "CIQ tabs checks", "5g info", " NR TAC   - For newly added Carriers-  NSA= 0 & SA =7 digit value", "NR/Radio", lambda: _nr_sa_tac_status(ciq_wb)),
+        (50, "CIQ tabs checks", "5g info", "6472 / AIR-6449 - C Band / AIR6419 - DOD - Check for the SEF/FRU -- Check for the SEF/FRU", "Radio", lambda: _agg(results.get("sef_fru", []))),
+        (51, "CIQ tabs checks", "5g info", "Unique Port for 5G and LTE incase of Separate Radio - Ports and data ports ", "Radio", lambda: _agg(results.get("port_uniqueness", []))),
 
-        (52, "CIQ tabs checks", "gNB Info", "gNBId/gNodeB Name matches Mixed Mode Info", "NR/Radio", lambda: _agg(identity)),
-        (53, "CIQ tabs checks", "gNB Info", "DU type same as 5G Info tab", "NR/Radio", lambda: _agg(board_type)),
+        (52, "CIQ tabs checks", "gNB Info", "gNBId/gNodeB Name must should with  Mixed Mode Info tab ", "NR/Radio", lambda: _agg(identity)),
+        (53, "CIQ tabs checks", "gNB Info", "DU type should be same as 5G Info tab - BBU Type", "NR/Radio", lambda: _agg(board_type)),
 
-        (54, "CIQ tabs checks", "eNB Info", "eNBId/eNodeB Name matches Mixed Mode Info", "NR/Radio", lambda: _agg(identity)),
-        (55, "CIQ tabs checks", "eNB Info", "BBU Type should match with RFDS", "Radio", lambda: _agg(board_type)),
+        (54, "CIQ tabs checks", "eNB Info", "eNBId/eNodeB Name should match with Mixed Mode Info tab - eNBId/eNodeB", "NR/Radio", lambda: _agg(identity)),
+        (55, "CIQ tabs checks", "eNB Info", "BBU Type should match with RFDS - BBU Type", "Radio", lambda: _agg(board_type)),
         (56, "CIQ tabs checks", "eNB Info", "TAC Value", "NR/Radio", lambda: _agg(results.get("tac", []))),
 
-        (57, "CIQ tabs checks", "eUtran Parameters Tab", "earfcnDl/dlChannelBandwidth ENM vs CIQ", "NR/Radio", lambda: _agg(results.get("params_4g", []))),
-        (58, "CIQ tabs checks", "eUtran Parameters Tab", "RBB type/noOfTx/noOfRx - ISDLONLY", "NR/Radio", lambda: _agg(results.get("params_4g", []))),
-        (59, "CIQ tabs checks", "eUtran Parameters Tab", "cellId ENM vs CIQ (SOW)", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
-        (60, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection vs RFDS", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
-        (61, "CIQ tabs checks", "eUtran Parameters Tab", "electricalAntennaTilt integer", "Radio", lambda: _agg(results.get("params_4g", []))),
-        (62, "CIQ tabs checks", "eUtran Parameters Tab", "configuredOutputPower depends on RRU type", "Radio", None),
-        (63, "CIQ tabs checks", "eUtran Parameters Tab", "TxRx/RBB Type vs Single/Double RILink", "Radio", lambda: _agg(results.get("params_4g", []))),
-        (64, "CIQ tabs checks", "eUtran Parameters Tab", "Compare Sectorid With Carrier Progression", "Radio", lambda: _agg(results.get("carrier_progression", []))),
-        (65, "CIQ tabs checks", "eUtran Parameters Tab", "PCI uniqueness", "Radio", lambda: _agg(results.get("pci_4g", []) + results.get("pci_5g", []))),
-        (66, "CIQ tabs checks", "eUtran Parameters Tab", "Pre-existing node cellId vs ENM & RFDS", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
+        (57, "CIQ tabs checks", "eUtran Parameters Tab", "earfcnDl/ dlChannelBandwidth ENM vs CIQ", "NR/Radio", lambda: _agg(results.get("params_4g", []))),
+        (58, "CIQ tabs checks", "eUtran Parameters Tab", "RBB type/ noOfTx/noOfRx\nIdentify  ISDLONLY carrier", "NR/Radio", lambda: _agg(results.get("params_4g", []))),
+        (59, "CIQ tabs checks", "eUtran Parameters Tab", "cellId ENM vs CIQ \nIdentify cellid change SOW", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
+        (60, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection should match with RFDS - EutranCell", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
+        (61, "CIQ tabs checks", "eUtran Parameters Tab", "electricalAntennaTilt should be integer value not character - Tilt", "Radio", lambda: _agg(results.get("params_4g", []))),
+        (62, "CIQ tabs checks", "eUtran Parameters Tab", "configuredOutputPower depends on RRU type (Ericsson 4490, 4890, or 4472 radios (e.g., NSB or Allagi projects, New Carrier Adds, Radio Swaps) will be Configured with maximum allowed power of 160W.) - configuredOutputPower", "Radio", None),
+        (63, "CIQ tabs checks", "eUtran Parameters Tab", "TxRx / RBB Type Need to be checked with - Single / Double RILink - RRU type & RBB type", "Radio", lambda: _agg(results.get("params_4g", []))),
+        (64, "CIQ tabs checks", "eUtran Parameters Tab", "1)Compare Sectorid With Carrier Progression - sectorId / Carrier", "Radio", lambda: _agg(results.get("carrier_progression", []))),
+        (65, "CIQ tabs checks", "eUtran Parameters Tab", "PhysicalLayerCellIdGroup and physicalLayerSubCellId should be unique - PCI", "Radio", lambda: _agg(results.get("pci_4g", []) + results.get("pci_5g", []))),
+        (66, "CIQ tabs checks", "eUtran Parameters Tab", "Pre-existing node cellId must be same as ENM & N2E/NSB site CellId should be match with RFDS - Cellid", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
         (67, "CIQ tabs checks", "eUtran Parameters Tab", "Riport should be unique", "Radio", lambda: _agg(results.get("xmu_port_overlap", []))),
-        (68, "CIQ tabs checks", "eUtran Parameters Tab", "tmaType/tmaConfiguration", "Radio", None),
+        (68, "CIQ tabs checks", "eUtran Parameters Tab", "tmaType / tmaConfiguration", "Radio", None),
         (69, "CIQ tabs checks", "eUtran Parameters Tab", "antenna model", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
-        (70, "CIQ tabs checks", "eUtran Parameters Tab", "XMU Validation vs RFDS", "Radio", lambda: _xmu_vs_rfds_status(enb_rows_all, node_ids, rfds_pages)),
-        (71, "CIQ tabs checks", "eUtran Parameters Tab", "ENM Validation - site locator (B2E)", "Radio", None),
+        (70, "CIQ tabs checks", "eUtran Parameters Tab", " XMU Validation - Need to check with RFDS - XMU", "Radio", lambda: _xmu_vs_rfds_status(enb_rows_all, node_ids, rfds_pages)),
+        (71, "CIQ tabs checks", "eUtran Parameters Tab", "ENM Validation - Need to check with site locator or ENM sheet (B2E) - ENM", "Radio", None),
 
-        (72, "CIQ tabs checks", "Losses and delay", "Losses/delay matches FDD and TxRx", "Radio", lambda: _agg(results.get("losses_vs_antenna", []))),
-        (73, "CIQ tabs checks", "Antenna Information", "AntennaUnit/AntennaSubunit unique band-wise", "Radio", lambda: _agg(results.get("antenna", []))),
-        (74, "CIQ tabs checks", "Sector Movement / Deletion sheet", "Source/target cells match ENM/eUtran", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
+        (72, "CIQ tabs checks", "Losses and delay", "Check for Losses delay matches to FDD and TxRx", "Radio", lambda: _agg(results.get("losses_vs_antenna", []))),
+        (73, "CIQ tabs checks", "Antenna Information", "AntennaUnit/AntennaSubunit should unique for the band wise", "Radio", lambda: _agg(results.get("antenna", []))),
+        (74, "CIQ tabs checks", "Sector Movement / Deletion sheet", "All source cells cellid/SSB/ BW matching with ENM and all target cells with eUtan tab", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
 
         # Rows 75-76 are new in the updated template (they pushed the old
         # "Pre checks" block from 75-79 down to 77-81). Both are EDP/ENM IP
         # comparisons this project has no automated check for, so they're
         # manual rather than silently reusing an unrelated check's result.
-        (75, "IP Validation Pre Vs EDP", None, "NodeB bearer IP / VLAN ID / router default IP vs EDP (board swap node)", "Radio",
+        (75, "IP Validation Pre Vs EDP", None, "Please verify the NodeB bearer IP, VLAN ID, and router default IP with EDP. If there is any mismatch, need to flag.(for board swap node)", "Radio",
          lambda: _worst_status([
              # Same Pre-vs-EDP comparison rows 21-23 already perform, rolled
              # up into one verdict for the board-swap row. Not a new check:
@@ -586,7 +586,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
              _pre_vs_edp_field_status(node_logs_text, node_role_list, edp_rows, "bearer_ip", "IPV6_ENODEB_BEARER_IP", is_ipv6=True),
              _pre_vs_edp_field_status(node_logs_text, node_role_list, edp_rows, "bearer_router_ip", "IPV6_SIAD_BEARER_IP_DEF_ROUTER", is_ipv6=True),
          ])),
-        (76, "Rehoming sites ( IP Verification )", None, "Existing IP/VLAN of all nodes: EDP vs ENM (Daffi node rehoming)", "Radio",
+        (76, "Rehoming sites ( IP Verification )", None, "For Daffi node rehoming, we need to check the existing IP/VLAN details of all nodes. If there is any mismatch between EDP and ENM, need to flag", "Radio",
          lambda: _worst_status([
              # Rehoming verifies the EXISTING IP/VLAN of every node, so this
              # rolls up all six bearer+OAM fields (rows 21-26) rather than
@@ -843,7 +843,22 @@ def build_pre_vs_edp_ipv6_table(node_logs_text, node_role_list, edp_rows):
     return out
 
 
-def build_pre_vs_edp_pivot_rows(node_logs_text, node_role_list, edp_rows):
+def _same_ipv6(a, b):
+    """Compare two IPv6 values ignoring cosmetic differences: the '/prefix'
+    suffix, zero-padding and '::' compression. Same rule the long-form
+    Pre-vs-EDP check uses (_pre_vs_edp_field_status._ipv6_eq) — shared here
+    so the pivot table and that check can never disagree on what counts as
+    a mismatch. Falls back to a plain string compare if a value isn't a
+    parseable address."""
+    import ipaddress
+    a, b = str(a or "").strip(), str(b or "").strip()
+    try:
+        return ipaddress.IPv6Address(a.split("/")[0]) == ipaddress.IPv6Address(b.split("/")[0])
+    except Exception:
+        return a.split("/")[0] == b.split("/")[0]
+
+
+def build_pre_vs_edp_pivot_rows(node_logs_text, node_role_list, edp_rows, ciq_wb=None):
     """One row per (node, role): Bearer/OAM VLAN, IPv6, Default Router,
     pre + EDP side by side — wide layout (Node ID + 2-col-per-field),
     replacing the long one-row-per-field format from
@@ -861,6 +876,7 @@ def build_pre_vs_edp_pivot_rows(node_logs_text, node_role_list, edp_rows):
         ("oam_router_ip", "IPV6_SIAD_OAM_IP_DEF_ROUTER", "oam_router"),
     ]
     role_short = {"Primary": "P", "Secondary": "S"}
+    du_type = _du_type_by_node(ciq_wb) if ciq_wb is not None else {}
 
     out = []
     for entry in node_role_list:
@@ -873,6 +889,30 @@ def build_pre_vs_edp_pivot_rows(node_logs_text, node_role_list, edp_rows):
         for pre_key, edp_key, out_key in field_map:
             row[f"{out_key}_pre"] = pre_vals.get(pre_key) or "—"
             row[f"{out_key}_edp"] = _norm(edp_rec.get(edp_key)) if edp_rec else "—"
+
+        # SIAD port size: Pre side is the transport EthernetPort's
+        # admOperatingMode ('10G_FULL'/'1G_FULL' -> 10GE/1GE). Which port
+        # holds it depends on the board generation, so the DU type is read
+        # from the CIQ first — same source _siad_port_size_pre_status uses,
+        # so the pivot and that check can't disagree. node_role_list
+        # entries carry only {node, role}, no board model.
+        board = du_type.get(nid) if ciq_wb is not None else None
+        _, pre_size = pe.extract_transport_port_mode(log_text, board) if (log_text and board) else (None, None)
+        row["siad_port_size_pre"] = pre_size or "—"
+        row["siad_port_size_edp"] = _norm(edp_rec.get("SIAD_PORT_SIZE_BBU")) if edp_rec else "—"
+
+        # Per-field verdict, so the UI can colour each pair independently.
+        # IPv6 is normalised before comparing (zero-padding / '::'
+        # compression are cosmetic, not mismatches); a '—' on either side
+        # means "not captured", which is unknown, never a mismatch.
+        for out_key in [k for _, _, k in field_map] + ["siad_port_size"]:
+            pv, ev = row[f"{out_key}_pre"], row[f"{out_key}_edp"]
+            if pv in ("—", "") or ev in ("—", ""):
+                row[f"{out_key}_status"] = "unknown"
+            elif "ipv6" in out_key or "router" in out_key:
+                row[f"{out_key}_status"] = "match" if _same_ipv6(pv, ev) else "mismatch"
+            else:
+                row[f"{out_key}_status"] = "match" if _norm(pv).upper() == _norm(ev).upper() else "mismatch"
         out.append(row)
     return out
 
