@@ -710,91 +710,69 @@ def render_rrnrbl_checklist(rows):
     STATUS_BG = {"match": "#eafaf1", "mismatch": "#fdecea", "manual": "#fff8e5",
                  "unknown": "#f1f3f6", "info": "#eaf2fb", "na": "#f1f3f6"}
     COLS = [0.06, 0.36, 0.06, 0.08, 0.44]
-
-    # Row background is applied to the WHOLE row via a wrapper class on the
-    # horizontal block, not just the markdown cells — previously the tick
-    # (checkbox) and Remarks (text input) columns kept Streamlit's own white
-    # background, so a passing row showed green text cells with two white
-    # gaps punched through it. Every cell in a row now shares one colour and
-    # one fixed height, so rows line up cleanly and a pass reads as a single
-    # solid green band (mismatch = solid red).
-    ROW_H = "30px"
+    # Row colour is applied TWO ways on purpose:
+    #   1. inline background on each markdown cell  — always works.
+    #   2. :has() rules below for the checkbox / text-input columns, whose
+    #      widgets render their own white background and can't take an
+    #      inline style. The marker span is emitted INSIDE the first column
+    #      so it is a DESCENDANT of the row's stHorizontalBlock — an earlier
+    #      attempt used an adjacent-sibling marker, which never matched
+    #      Streamlit's DOM and silently killed all colouring.
+    ROW_H = "24px"
     st.markdown(f"""
     <style>
-    .qkx-chk-wrap {{ max-width: 1180px; border:1px solid #cbd5e1; border-radius:6px;
-                     overflow:hidden; margin-bottom:14px; }}
+    .qkx-chk-wrap {{ max-width: 1120px; border:1px solid #cbd5e1; border-radius:5px;
+                     overflow:hidden; margin-bottom:12px; }}
     .qkx-chk-wrap [data-testid="stVerticalBlock"] {{ gap: 0rem !important; }}
     .qkx-chk-wrap [data-testid="stElementContainer"] {{ margin: 0 !important; }}
     .qkx-chk-wrap [data-testid="column"] {{ padding: 0 !important; }}
     .qkx-chk-wrap [data-testid="stHorizontalBlock"] {{ gap: 0rem !important; align-items:stretch !important; }}
 
-    .qkx-chk-hdr {{ background:#1e3a5f; color:#fff; font-weight:700; font-size:0.82em;
-                   letter-spacing:.02em; text-transform:uppercase;
-                   padding:0 10px; height:34px; display:flex; align-items:center;
+    .qkx-chk-hdr {{ background:#1e3a5f; color:#fff; font-weight:700; font-size:0.72em;
+                   letter-spacing:.03em; text-transform:uppercase;
+                   padding:0 8px; height:28px; display:flex; align-items:center;
                    justify-content:center; border-right:1px solid #33507a; }}
     .qkx-chk-hdr.left {{ justify-content:flex-start; }}
-    .qkx-chk-cat2 {{ background:#22406b; color:#fff; font-weight:700; font-size:0.88em;
-                    padding:0 12px; height:32px; display:flex; align-items:center;
+    .qkx-chk-cat2 {{ background:#22406b; color:#fff; font-weight:700; font-size:0.78em;
+                    padding:0 10px; height:26px; display:flex; align-items:center;
                     letter-spacing:.01em; border-top:1px solid #14283f; }}
 
-    /* every cell in a row: same height, same border, colour inherited from the row */
-    .qkx-chk-cell {{ padding:0 10px; border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0;
-                    height:{ROW_H}; display:flex; align-items:center; font-size:0.875em;
+    .qkx-chk-cell {{ padding:0 8px; border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0;
+                    height:{ROW_H}; display:flex; align-items:center; font-size:0.78em;
                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+    .qkx-rs {{ display:none; }}
 
-    /* widgets: strip Streamlit's white chrome so the row colour shows through */
     .qkx-chk-wrap [data-testid="stCheckbox"], .qkx-chk-wrap [data-testid="stTextInput"] {{
         border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0;
         height:{ROW_H}; min-height:{ROW_H}; display:flex; align-items:center;
-        background:transparent !important;
     }}
     .qkx-chk-wrap [data-testid="stCheckbox"] {{ justify-content:center; }}
     .qkx-chk-wrap [data-testid="stCheckbox"] label {{ padding:0 !important; margin:0 !important; }}
     .qkx-chk-wrap [data-testid="stCheckbox"] div[role="checkbox"] {{
-                    width:17px !important; height:17px !important; border-radius:3px !important; }}
+                    width:14px !important; height:14px !important; border-radius:2px !important; }}
     .qkx-chk-wrap [data-testid="stCheckbox"] div[role="checkbox"][aria-checked="true"] {{
                     background:#059669 !important; border-color:#059669 !important; }}
     .qkx-chk-wrap [data-testid="stTextInput"] > div {{ border:none !important; background:transparent !important;
                     height:{ROW_H} !important; min-height:{ROW_H} !important; }}
     .qkx-chk-wrap [data-testid="stTextInput"] input {{ height:calc({ROW_H} - 2px) !important;
-                    min-height:0 !important; padding:0 8px !important; font-size:0.875em !important;
+                    min-height:0 !important; padding:0 6px !important; font-size:0.78em !important;
                     border-radius:0 !important; background:transparent !important; box-shadow:none !important; }}
 
-    /* Row tint. The marker div lives in its own element-container; the
-       actual row (stHorizontalBlock) is the NEXT sibling container, so the
-       tint is applied via :has() on the marker + adjacent-sibling. Every
-       cell type is listed so the checkbox and text-input columns tint too
-       — those two kept Streamlit's white background before, which is what
-       punched the gaps through each coloured row. */
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-match) + [data-testid="stElementContainer"] .qkx-chk-cell,
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-match) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-match) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
-        background:#e8f7ef !important; }}
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] .qkx-chk-cell,
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
-        background:#fdeaea !important; }}
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-manual) + [data-testid="stElementContainer"] .qkx-chk-cell,
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-manual) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-manual) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
-        background:#fff8e6 !important; }}
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-info) + [data-testid="stElementContainer"] .qkx-chk-cell,
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-info) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-info) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
-        background:#eaf2fb !important; }}
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-unknown) + [data-testid="stElementContainer"] .qkx-chk-cell,
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-unknown) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-unknown) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
-        background:#f4f6f8 !important; }}
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-na) + [data-testid="stElementContainer"] .qkx-chk-cell,
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-na) + [data-testid="stElementContainer"] [data-testid="stCheckbox"],
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-na) + [data-testid="stElementContainer"] [data-testid="stTextInput"] {{
-        background:#f4f6f8 !important; }}
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] .qkx-chk-cell {{
-        color:#9f1d1d; font-weight:600; }}
-    [data-testid="stElementContainer"]:has(> div > .qkx-row-mismatch) + [data-testid="stElementContainer"] [data-testid="stTextInput"] input {{
+    /* widget columns inherit the row colour via the in-row marker */
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-match) [data-testid="stCheckbox"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-match) [data-testid="stTextInput"] {{ background:#e8f7ef !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="stCheckbox"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="stTextInput"] {{ background:#fdeaea !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-manual) [data-testid="stCheckbox"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-manual) [data-testid="stTextInput"] {{ background:#fff8e6 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-info) [data-testid="stCheckbox"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-info) [data-testid="stTextInput"] {{ background:#eaf2fb !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-unknown) [data-testid="stCheckbox"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-unknown) [data-testid="stTextInput"] {{ background:#f4f6f8 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-na) [data-testid="stCheckbox"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-na) [data-testid="stTextInput"] {{ background:#f4f6f8 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="stTextInput"] input {{
         color:#9f1d1d !important; font-weight:600; }}
-    .qkx-row-marker {{ height:0; margin:0; padding:0; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -823,17 +801,23 @@ def render_rrnrbl_checklist(rows):
         # whole row (not each markdown cell) is what closes the white gaps
         # the checkbox and text-input columns used to leave.
         row_cls = f"qkx-row-{r['status']}"
-        st.markdown(f'<div class="{row_cls} qkx-row-marker"></div>', unsafe_allow_html=True)
+        txt = "#9f1d1d" if r["status"] == "mismatch" else "#334155"
         c0, c1, c2, c3, c4 = st.columns(COLS, gap="small")
         with c0:
-            st.markdown(f'<div class="qkx-chk-cell" style="justify-content:center;'
-                        f'color:{color};font-weight:800;font-size:1em;">{tick}</div>', unsafe_allow_html=True)
+            # marker span rides inside the row so the :has() rules above can
+            # reach the checkbox / text-input columns; it renders nothing.
+            st.markdown(f'<div class="qkx-chk-cell" style="justify-content:center;background:{bg};'
+                        f'color:{color};font-weight:800;">'
+                        f'<span class="qkx-rs {row_cls}"></span>{tick}</div>', unsafe_allow_html=True)
         with c1:
-            st.markdown(f'<div class="qkx-chk-cell" title="{esc(r["item"])}">{esc(r["item"])}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="qkx-chk-cell" style="background:{bg};color:{txt};'
+                        f'font-weight:600;" title="{esc(r["item"])}">{esc(r["item"])}</div>',
+                        unsafe_allow_html=True)
         with c2:
             st.checkbox("", value=default_checked, key=f"{key}_checked", label_visibility="collapsed")
         with c3:
-            st.markdown(f'<div class="qkx-chk-cell" style="color:#475569;">{esc(r.get("tag",""))}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="qkx-chk-cell" style="background:{bg};color:#475569;">'
+                        f'{esc(r.get("tag",""))}</div>', unsafe_allow_html=True)
         with c4:
             st.text_input("Remarks", value=default_comment, key=f"{key}_comment",
                           label_visibility="collapsed", placeholder="Remarks\u2026")
