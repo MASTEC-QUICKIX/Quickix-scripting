@@ -729,105 +729,64 @@ def render_rrnrbl_checklist(rows):
     #      so it is a DESCENDANT of the row's stHorizontalBlock — an earlier
     #      attempt used an adjacent-sibling marker, which never matched
     #      Streamlit's DOM and silently killed all colouring.
-    ROW_H = "24px"
+    ROW_H = "26px"
     st.markdown(f"""
     <style>
-    /* NOTE ON SCOPING: the '<div class="qkx-chk-wrap">' opener is emitted by
-       its own st.markdown call, so Streamlit closes it immediately — the
-       rows that follow are SIBLINGS of it, never children. Every rule
-       written as '.qkx-chk-wrap [data-testid=...]' therefore matched
-       nothing, which is why the Tick/Remarks columns stayed white and the
-       rows sat far apart. Rows are instead identified by the marker span
-       each one emits inside its first column, so :has() scopes to the real
-       row element. */
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow),
-    [data-testid="stHorizontalBlock"]:has(.qkx-chk-hdr) {{
-        gap:0rem !important; align-items:stretch !important; margin:0 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="column"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-chk-hdr) [data-testid="column"] {{
+    /* SCOPING RULES LEARNED THE HARD WAY:
+       1. '.qkx-chk-wrap' never wraps anything — Streamlit closes a lone
+          opener immediately, so rows are its siblings. Rows are identified
+          by the .qkx-crow marker class on their first cell instead.
+       2. ':has(.qkx-crow)' on stVerticalBlock matches EVERY ancestor
+          vertical block, including the page container — putting gap:0 or
+          margin:0 there collapsed the spacing of unrelated sections
+          (Pre/Post, SOW) and made banners overlap their rows. So layout
+          overrides are applied ONLY to the row's own stHorizontalBlock,
+          never to a vertical block, and heights are min-heights so nothing
+          can clip. */
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) {{
+        gap:0rem !important; align-items:center !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="column"] {{
         padding:0 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stElementContainer"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-chk-hdr) [data-testid="stElementContainer"] {{
-        margin:0 !important; }}
 
     .qkx-chk-hdr {{ background:#1e3a5f; color:#fff; font-weight:700; font-size:0.72em;
                    letter-spacing:.03em; text-transform:uppercase;
-                   padding:0 8px; height:26px; display:flex; align-items:center;
-                   justify-content:center; border-right:1px solid #33507a; }}
-    .qkx-chk-hdr.left {{ justify-content:flex-start; }}
-    /* Auto height, not a fixed one: a fixed height clipped the banner text
-       where the label wrapped or the font metrics differed. */
+                   padding:6px 8px; display:block; }}
     .qkx-chk-cat2 {{ background:#22406b; color:#fff; font-weight:700; font-size:0.78em;
                     padding:6px 10px; line-height:1.25; display:block;
-                    margin:6px 0 0 0; position:relative; z-index:1; }}
+                    margin:10px 0 2px 0; border-radius:3px; }}
 
-    .qkx-chk-cell {{ padding:0 8px; border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0;
-                    height:{ROW_H}; display:flex; align-items:center; font-size:0.78em;
-                    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+    .qkx-chk-cell {{ padding:4px 8px; min-height:{ROW_H}; display:flex; align-items:center;
+                    font-size:0.78em; overflow:hidden; text-overflow:ellipsis;
+                    white-space:nowrap; border-bottom:1px solid #e8edf3; }}
 
-    /* widget columns: strip Streamlit's chrome and match the cell height */
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] {{
-        border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0;
-        height:{ROW_H}; min-height:{ROW_H}; display:flex; align-items:center; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] {{ justify-content:center; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] label {{
-        padding:0 !important; margin:0 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] div[role="checkbox"] {{
-        width:13px !important; height:13px !important; border-radius:2px !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div {{
-        border:none !important; background:transparent !important;
-        height:{ROW_H} !important; min-height:{ROW_H} !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] input {{
-        height:calc({ROW_H} - 2px) !important; min-height:0 !important; padding:0 6px !important;
-        font-size:0.78em !important; border-radius:0 !important;
-        background:transparent !important; box-shadow:none !important; }}
-
-    /* The vertical gap BETWEEN rows lives on the vertical block that holds
-       them, not on each row — without this the rows sit far apart even
-       though every row itself is only {ROW_H} tall. */
-    [data-testid="stVerticalBlock"]:has(.qkx-crow) {{ gap:0rem !important; }}
-
-    /* Kill every inherited min-height/margin inside the two widget columns.
-       Streamlit's input wrapper carries its own baseweb padding, which was
-       pushing the checkbox and the Remarks box below their row's baseline. */
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] *,
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] * {{
-        min-height:0 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div,
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div > div {{
-        width:100% !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div > div {{
-        height:100% !important; border:none !important; background:transparent !important;
-        padding:0 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] > label,
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] > div {{
-        align-self:center !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] > label,
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] > label > span,
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div {{
-        background:transparent !important; }}
-    /* the checkbox control keeps its own box so it stays visible */
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] div[role="checkbox"] {{
-        background:#fff !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] div[role="checkbox"][aria-checked="true"] {{
-        background:#059669 !important; border-color:#059669 !important; }}
-
-    /* Whole-row tint. The colour goes on the COLUMN wrapper, so the
-       checkbox column is covered edge-to-edge — tinting only the widget
-       left a white band around it (Streamlit's own label/div backgrounds
-       and the column padding showed through). Widget internals are then
-       forced transparent so the column colour is what shows, except the
-       checkbox control itself which keeps its own box. */
+    /* Whole-row tint goes on the COLUMN wrapper so the Tick column is
+       covered edge to edge; widget chrome is made transparent so that
+       colour is what shows through. */
     [data-testid="stHorizontalBlock"]:has(.qkx-row-match) [data-testid="column"] {{ background:#eafaf1 !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="column"] {{ background:#fdecea !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-manual) [data-testid="column"] {{ background:#fff8e5 !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-info) [data-testid="column"] {{ background:#eaf2fb !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-unknown) [data-testid="column"] {{ background:#f1f3f6 !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-na) [data-testid="column"] {{ background:#f1f3f6 !important; }}
+
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] label,
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"],
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div {{
+        background:transparent !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] {{
+        display:flex; justify-content:center; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] label {{
+        margin:0 !important; padding:0 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] div[role="checkbox"] {{
+        width:14px !important; height:14px !important; border-radius:2px !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] div[role="checkbox"][aria-checked="true"] {{
+        background:#059669 !important; border-color:#059669 !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div {{
+        border:none !important; }}
+    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] input {{
+        padding:2px 6px !important; font-size:0.78em !important; border-radius:0 !important;
+        background:transparent !important; box-shadow:none !important; }}
     [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="stTextInput"] input {{
         color:#9f1d1d !important; font-weight:600; }}
     </style>
