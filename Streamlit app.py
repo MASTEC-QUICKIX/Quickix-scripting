@@ -693,175 +693,107 @@ def render_checklist_grid(rows, manual_values):
 
 
 def render_rrnrbl_checklist(rows):
+    """Checklist grid, rendered with st.data_editor.
+
+    This used to be hand-built from st.columns + st.markdown + widgets,
+    styled with CSS targeting Streamlit's internal data-testid nodes. That
+    approach never held together: the wrapper div didn't wrap anything, the
+    :has() scoping leaked to the whole page and collapsed unrelated
+    sections, and the Tick/Remarks widget columns kept their own chrome no
+    matter what was overridden — so rows drifted out of alignment on every
+    Streamlit update. data_editor is a real grid: columns line up by
+    construction, the checkbox and text cells are native and editable, and
+    no CSS is involved at all.
+
+    Status colour is carried in the Indication column as a coloured square
+    plus a word, which survives sorting and needs no row styling (per-row
+    background isn't supported by data_editor)."""
+    import pandas as pd
+
     if not rows:
-        st.markdown('<div class="qkx-empty">Run validation to populate the checklist.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="qkx-empty">Run validation to populate the checklist.</div>',
+                    unsafe_allow_html=True)
         return
 
     counts = {}
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
-    order = ["mismatch", "manual", "match", "info", "unknown", "na"]
-    pills = "".join(
+    order = ["mismatch", "manual", "unknown", "info", "na", "match"]
+    pills = " ".join(
         f'<span class="qkx-count-pill"><b style="color:{STATUS_COLORS.get(k, DEFAULT_COLOR)[0]}">{counts[k]}</b> '
         f'{esc(STATUS_LABEL.get(k, k))}</span>'
         for k in sorted(counts, key=lambda x: (order.index(x) if x in order else 99, x))
     )
     st.markdown(f'<div style="margin:2px 0 10px 0;">{pills}</div>', unsafe_allow_html=True)
-    st.caption("Auto-checked below \u2014 untick or edit any remarks that need a manual call, then download.")
+    st.caption("Automated checks are pre-ticked; manual ones start unticked. "
+               "Edit Tick/Remarks as needed, then download.")
 
-    # Indication icon is separate from the actual tick box now (column order:
-    # Indication, Check, Tick, Scope, Remarks) — previously the emoji was
-    # baked into the checkbox's own label, which is what read as messy/
-    # unclear and put the indication in the wrong position.
-    STATUS_TICK = {"match": ("\u2713", "#059669"), "mismatch": ("\u2717", "#dc2626"),
-                   "manual": ("\u270e", "#b45309"), "unknown": ("\u2013", "#94a3b8"),
-                   "info": ("i", "#2563eb"), "na": ("\u2013", "#94a3b8")}
-    STATUS_BG = {"match": "#eafaf1", "mismatch": "#fdecea", "manual": "#fff8e5",
-                 "unknown": "#f1f3f6", "info": "#eaf2fb", "na": "#f1f3f6"}
-    # Remarks carries the actual finding text, so it gets the most room;
-    # Check names are truncated with an ellipsis + hover title instead.
-    COLS = [0.05, 0.28, 0.05, 0.07, 0.55]
-    # Row colour is applied TWO ways on purpose:
-    #   1. inline background on each markdown cell  — always works.
-    #   2. :has() rules below for the checkbox / text-input columns, whose
-    #      widgets render their own white background and can't take an
-    #      inline style. The marker span is emitted INSIDE the first column
-    #      so it is a DESCENDANT of the row's stHorizontalBlock — an earlier
-    #      attempt used an adjacent-sibling marker, which never matched
-    #      Streamlit's DOM and silently killed all colouring.
-    ROW_H = "26px"
-    st.markdown(f"""
-    <style>
-    /* SCOPING RULES LEARNED THE HARD WAY:
-       1. '.qkx-chk-wrap' never wraps anything — Streamlit closes a lone
-          opener immediately, so rows are its siblings. Rows are identified
-          by the .qkx-crow marker class on their first cell instead.
-       2. ':has(.qkx-crow)' on stVerticalBlock matches EVERY ancestor
-          vertical block, including the page container — putting gap:0 or
-          margin:0 there collapsed the spacing of unrelated sections
-          (Pre/Post, SOW) and made banners overlap their rows. So layout
-          overrides are applied ONLY to the row's own stHorizontalBlock,
-          never to a vertical block, and heights are min-heights so nothing
-          can clip. */
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) {{
-        gap:0rem !important; align-items:center !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="column"] {{
-        padding:0 !important; }}
+    INDICATION = {"match": "🟩 Pass", "mismatch": "🟥 Fail", "manual": "🟨 Manual",
+                  "unknown": "⬜ Unknown", "info": "🟦 Info", "na": "⬜ N/A"}
 
-    .qkx-chk-hdr {{ background:#1e3a5f; color:#fff; font-weight:700; font-size:0.72em;
-                   letter-spacing:.03em; text-transform:uppercase;
-                   padding:6px 8px; display:block; }}
-    .qkx-chk-cat2 {{ background:#22406b; color:#fff; font-weight:700; font-size:0.78em;
-                    padding:6px 10px; line-height:1.25; display:block;
-                    margin:10px 0 2px 0; border-radius:3px; }}
+    df = pd.DataFrame([{
+        "Indication": INDICATION.get(r["status"], r["status"]),
+        "Section": r["cat"] + (f' — {r["sub"]}' if r.get("sub") else ""),
+        "Check": r["item"],
+        # Ticked = the check was carried out, not that it passed. Manual
+        # rows start unticked: nothing was verified automatically.
+        "Tick": r["status"] != "manual",
+        "Scope": r.get("tag", ""),
+        "Remarks": "" if r["status"] == "manual" else (r.get("detail") or ""),
+        "_row": r["row"],
+    } for r in rows])
 
-    .qkx-chk-cell {{ padding:4px 8px; min-height:{ROW_H}; display:flex; align-items:center;
-                    font-size:0.78em; overflow:hidden; text-overflow:ellipsis;
-                    white-space:nowrap; border-bottom:1px solid #e8edf3; }}
+    edited = st.data_editor(
+        df,
+        key="rrnrbl_editor",
+        hide_index=True,
+        use_container_width=True,
+        height=min(len(df) * 36 + 40, 780),
+        column_config={
+            "Indication": st.column_config.TextColumn("Indication", width="small"),
+            "Section": st.column_config.TextColumn("Section", width="medium"),
+            "Check": st.column_config.TextColumn("Check", width="large"),
+            "Tick": st.column_config.CheckboxColumn("Tick", width="small"),
+            "Scope": st.column_config.TextColumn("Scope", width="small"),
+            "Remarks": st.column_config.TextColumn("Remarks", width="large"),
+            "_row": None,
+        },
+        disabled=["Indication", "Section", "Check", "Scope"],
+    )
+    # Stash for collect_manual_overrides — the edited frame is the single
+    # source of truth for what the user changed.
+    st.session_state["rrnrbl_edited"] = edited
 
-    /* Whole-row tint goes on the COLUMN wrapper so the Tick column is
-       covered edge to edge; widget chrome is made transparent so that
-       colour is what shows through. */
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-match) [data-testid="column"] {{ background:#eafaf1 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="column"] {{ background:#fdecea !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-manual) [data-testid="column"] {{ background:#fff8e5 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-info) [data-testid="column"] {{ background:#eaf2fb !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-unknown) [data-testid="column"] {{ background:#f1f3f6 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-na) [data-testid="column"] {{ background:#f1f3f6 !important; }}
-
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] label,
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"],
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div {{
-        background:transparent !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] {{
-        display:flex; justify-content:center; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] label {{
-        margin:0 !important; padding:0 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] div[role="checkbox"] {{
-        width:14px !important; height:14px !important; border-radius:2px !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stCheckbox"] div[role="checkbox"][aria-checked="true"] {{
-        background:#059669 !important; border-color:#059669 !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] > div {{
-        border:none !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-crow) [data-testid="stTextInput"] input {{
-        padding:2px 6px !important; font-size:0.78em !important; border-radius:0 !important;
-        background:transparent !important; box-shadow:none !important; }}
-    [data-testid="stHorizontalBlock"]:has(.qkx-row-mismatch) [data-testid="stTextInput"] input {{
-        color:#9f1d1d !important; font-weight:600; }}
-    </style>
-    """, unsafe_allow_html=True)
-
-    # (no wrapper div — Streamlit closes a lone opener immediately, so it
-    # never actually contained the rows; scoping is done per-row instead.)
-    hc = st.columns(COLS, gap="small")
-    for c, label, cls in zip(hc, ["Indication", "Check", "Tick", "Scope", "Remarks"],
-                              ["", "left", "", "left", "left"]):
-        c.markdown(f'<div class="qkx-chk-hdr {cls}">{label}</div>', unsafe_allow_html=True)
-
-    last_cat = last_sub = object()
-    for r in rows:
-        if r["cat"] != last_cat or r.get("sub") != last_sub:
-            hdr = esc(r["cat"]) + (f" \u2014 {esc(r['sub'])}" if r.get("sub") else "")
-            st.markdown(f'<div class="qkx-chk-cat2">{hdr}</div>', unsafe_allow_html=True)
-            last_cat, last_sub = r["cat"], r.get("sub")
-
-        key = f'rrnrbl_{r["row"]}'
-        # Ticked = the check was carried out, not that it passed — so an
-        # automated row is ticked even when it found a mismatch (the
-        # finding is reported in Remarks). MANUAL rows are the exception:
-        # nothing was verified automatically, so they start UNTICKED and
-        # the engineer ticks them once they have actually reviewed them.
-        default_checked = r["status"] != "manual"
-        default_comment = "" if r["status"] == "manual" else (r.get("detail") or "")
-        tick, color = STATUS_TICK.get(r["status"], ("\u2013", "#94a3b8"))
-        bg = STATUS_BG.get(r["status"], "#f1f3f6")
-
-        # st.columns can't take a CSS class, so the row is wrapped in a
-        # container marked by a sentinel span; the CSS above targets the
-        # container that immediately follows it via :has(). Tinting the
-        # whole row (not each markdown cell) is what closes the white gaps
-        # the checkbox and text-input columns used to leave.
-        row_cls = f"qkx-row-{r['status']}"
-        txt = "#9f1d1d" if r["status"] == "mismatch" else "#334155"
-        c0, c1, c2, c3, c4 = st.columns(COLS, gap="small")
-        with c0:
-            # marker span rides inside the row so the :has() rules above can
-            # reach the checkbox / text-input columns; it renders nothing.
-            # The marker classes ride on the tick cell itself rather than an
-            # extra empty <span> — an empty element is exactly the kind of
-            # node an HTML sanitiser may drop, and losing it would silently
-            # kill every :has() rule that colours this row.
-            st.markdown(f'<div class="qkx-chk-cell qkx-crow {row_cls}" '
-                        f'style="justify-content:center;background:{bg};'
-                        f'color:{color};font-weight:800;">{tick}</div>', unsafe_allow_html=True)
-        with c1:
-            st.markdown(f'<div class="qkx-chk-cell" style="background:{bg};color:{txt};'
-                        f'font-weight:600;" title="{esc(r["item"])}">{esc(r["item"])}</div>',
-                        unsafe_allow_html=True)
-        with c2:
-            st.checkbox("", value=default_checked, key=f"{key}_checked", label_visibility="collapsed")
-        with c3:
-            st.markdown(f'<div class="qkx-chk-cell" style="background:{bg};color:#475569;">'
-                        f'{esc(r.get("tag",""))}</div>', unsafe_allow_html=True)
-        with c4:
-            st.text_input("Remarks", value=default_comment, key=f"{key}_comment",
-                          label_visibility="collapsed", placeholder="Remarks\u2026")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def collect_manual_overrides(checklist):
+    """What the user actually has on screen, keyed by checklist row.
+
+    Read from the edited data_editor frame rather than per-widget session
+    keys — with a real grid there is one frame holding every row's current
+    Tick/Remarks, so the export can't drift from what is displayed."""
+    edited = st.session_state.get("rrnrbl_edited")
     overrides = {}
+    if edited is not None and len(edited):
+        for rec in edited.to_dict("records"):
+            r = rec.get("_row")
+            if r is None:
+                continue
+            overrides[int(r)] = {
+                "checked": bool(rec.get("Tick")),
+                "comment": (rec.get("Remarks") or "").strip(),
+            }
+        return overrides
+
+    # No interaction yet (e.g. download pressed before the grid rendered):
+    # fall back to the same defaults the grid itself would show.
     for row in checklist:
-        r = row["row"]
-        # Must match render_checklist_grid's widget default exactly, or an
-        # untouched row would export a different tick than the one shown.
-        default_checked = row["status"] != "manual"
-        overrides[r] = {
-            "checked": st.session_state.get(f"rrnrbl_{r}_checked", default_checked),
-            "comment": st.session_state.get(f"rrnrbl_{r}_comment", ""),
+        overrides[row["row"]] = {
+            "checked": row["status"] != "manual",
+            "comment": "" if row["status"] == "manual" else (row.get("detail") or ""),
         }
     return overrides
+
 
 
 # ══════════════════════════════════════════════════════════════════════
