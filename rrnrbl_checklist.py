@@ -781,16 +781,30 @@ def fill_checklist_xlsx(checklist, site_id_fa, engineer_name=None, sow=None, dat
 
     for entry in checklist:
         r = entry["row"]
-        override = manual_overrides.get(r)
-        if entry["status"] == "manual" and override is not None:
-            ws[f"C{r}"] = bool(override.get("done"))
-            comment = (override.get("comment") or "").strip()
-            ws[f"E{r}"] = f"[MANUAL — user-confirmed] {comment}" if comment else "[MANUAL — marked done, no comment]" if override.get("done") else "[MANUAL] Not yet reviewed."
-            continue
-        ws[f"C{r}"] = (entry["status"] == "match")
+        override = manual_overrides.get(r) or {}
+        # The UI widget writes 'checked'; older callers passed 'done'. Accept
+        # both — a key mismatch here is why edits made in the app never
+        # reached the downloaded file.
+        user_checked = override.get("checked", override.get("done"))
+        user_comment = (override.get("comment") or "").strip()
+
+        # The tick means "this check was carried out", NOT "it passed" — so
+        # a row is ticked even when the check found a mismatch (the finding
+        # itself is reported in the Comments column). A tick the user
+        # explicitly cleared in the UI is still honoured.
+        ws[f"C{r}"] = bool(user_checked) if user_checked is not None else True
+
         label, _ = STATUS_META.get(entry["status"], ("", False))
-        comment = entry["detail"] or ""
-        ws[f"E{r}"] = f"[{label}] {comment}" if label else comment
+        if user_comment:
+            # User's own words win, but keep the status label so a failure
+            # is never silently downgraded to a clean-looking row.
+            ws[f"E{r}"] = f"[{label}] {user_comment}" if label else user_comment
+        elif entry["status"] == "manual":
+            ws[f"E{r}"] = ("[MANUAL — marked done, no comment]" if user_checked
+                           else "[MANUAL] Not yet reviewed.")
+        else:
+            comment = entry["detail"] or ""
+            ws[f"E{r}"] = f"[{label}] {comment}" if label else comment
 
     buf = io.BytesIO()
     wb.save(buf)
