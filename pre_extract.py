@@ -1009,6 +1009,15 @@ def extract_bearer_oam_ipv6(text):
     }
 
 
+# Confirmed board-generation -> transport EthernetPort name mapping (G2
+# boards can show either TN_A or TN_B in practice, hence trying both).
+BOARD_TRANSPORT_PORTS = {
+    "6630": ["TN_A", "TN_B"], "5216": ["TN_A", "TN_B"],   # G2
+    "6648": ["TN_IDL_B"], "6651": ["TN_IDL_B"],            # G3
+    "6672": ["TN_IDL_C"],                                   # G4
+}
+
+
 def extract_transport_port_mode(text, board_model):
     """admOperatingMode ('9 (10G_FULL)' / '6 (1G_FULL)' -> '10GE'/'1GE') off
     the Transport=1,EthernetPort=<name> MO expected for this board
