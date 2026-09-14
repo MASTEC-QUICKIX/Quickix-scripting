@@ -693,7 +693,11 @@ def render_checklist_grid(rows, manual_values):
 
 
 def render_rrnrbl_checklist(rows):
-    """Checklist grid.
+    """Checklist grid: one qkx-cat-banner per category, each followed by a
+    small st.dataframe of just that category's Check/Tick/Scope/Remarks
+    rows — category shown once, not repeated per row (matches the
+    Checklist_RRNRBL.xlsx flat layout: category banner row, then item
+    rows).
 
     Confirmed against Streamlit's own docs and a currently-open platform
     issue (streamlit/streamlit#10953): st.data_editor does NOT apply
@@ -705,12 +709,13 @@ def render_rrnrbl_checklist(rows):
     alignment kept breaking.
 
     So the two jobs are split, each using the API actually built for it:
-      - DISPLAY: st.dataframe + a pandas Styler. This is a first-class,
-        documented Streamlit feature (not internals-guessing) that gives
-        real whole-row background colour, guaranteed column alignment
-        (glide-data-grid, the same engine data_editor uses), bold headers
-        by default, and one fixed row_height for even sizing — everything
-        asked for, with zero custom CSS.
+      - DISPLAY: st.dataframe + a pandas Styler, one per category. This
+        is a first-class, documented Streamlit feature (not internals-
+        guessing) that gives real whole-row background colour, guaranteed
+        column alignment (glide-data-grid, the same engine data_editor
+        uses), bold headers by default, and one fixed row_height for even
+        sizing — everything asked for, with zero custom CSS beyond the
+        existing qkx-cat-banner.
       - EDIT: a plain list of native checkbox + text_input pairs, scoped
         to only the rows a person would actually act on (mismatch/manual
         — a passing row needs no review). Small, ordinary Streamlit
@@ -719,6 +724,7 @@ def render_rrnrbl_checklist(rows):
         styling, not Streamlit's own widgets.
     """
     import pandas as pd
+    from itertools import groupby
 
     if not rows:
         st.markdown('<div class="qkx-empty">Run validation to populate the checklist.</div>',
@@ -751,41 +757,45 @@ def render_rrnrbl_checklist(rows):
             return ov["comment"]
         return "" if r["status"] == "manual" else (r.get("detail") or "")
 
-    df = pd.DataFrame([{
-        "Section": r["cat"] + (f" \u2014 {r['sub']}" if r.get("sub") else ""),
-        "Check": r["item"],
-        "Tick": _tick_for(r),
-        "Scope": r.get("tag", ""),
-        "Remarks": _remarks_for(r),
-        "_status": r["status"],
-    } for r in rows])
-
-    def _tint_row(styler_row):
-        # styler_row is the 5-visible-column row Styler passes in; the
-        # status for that same index is looked up from the full df
-        # separately, and the returned list must match styler_row's OWN
-        # length (5), not the full df's (6, including _status) — mixing
-        # the two up throws 'invalid columns labels' (verified).
-        status = df.loc[styler_row.name, "_status"]
+    def _tint_row(styler_row, cat_df):
+        # styler_row is the 4-visible-column row Styler passes in for THIS
+        # category's own df; status is looked up from that same cat_df
+        # (not the full rows list), so the index always lines up even
+        # though every category's df restarts at 0.
+        status = cat_df.loc[styler_row.name, "_status"]
         _, bg = STATUS_COLORS.get(status, DEFAULT_COLOR)
         return [f"background-color:{bg}"] * len(styler_row)
 
-    styled = df.drop(columns=["_status"]).style.apply(_tint_row, axis=1)
+    for cat, group in groupby(rows, key=lambda r: r["cat"]):
+        group = list(group)
+        st.markdown(f'<div class="qkx-cat-banner"><span>{esc(cat)}</span></div>',
+                    unsafe_allow_html=True)
 
-    st.dataframe(
-        styled,
-        hide_index=True,
-        use_container_width=True,
-        row_height=34,
-        height=min(len(df) * 34 + 38, 760),
-        column_config={
-            "Section": st.column_config.TextColumn("Section", width="medium"),
-            "Check": st.column_config.TextColumn("Check", width="large"),
-            "Tick": st.column_config.TextColumn("Tick", width="small"),
-            "Scope": st.column_config.TextColumn("Scope", width="small"),
-            "Remarks": st.column_config.TextColumn("Remarks", width="large"),
-        },
-    )
+        cat_df = pd.DataFrame([{
+            "Check": r["item"],
+            "Tick": _tick_for(r),
+            "Scope": r.get("tag", ""),
+            "Remarks": _remarks_for(r),
+            "_status": r["status"],
+        } for r in group])
+
+        styled = cat_df.drop(columns=["_status"]).style.apply(
+            lambda row: _tint_row(row, cat_df), axis=1
+        )
+
+        st.dataframe(
+            styled,
+            hide_index=True,
+            use_container_width=True,
+            row_height=34,
+            height=len(cat_df) * 34 + 38,
+            column_config={
+                "Check": st.column_config.TextColumn("Check", width="large"),
+                "Tick": st.column_config.TextColumn("Tick", width="small"),
+                "Scope": st.column_config.TextColumn("Scope", width="small"),
+                "Remarks": st.column_config.TextColumn("Remarks", width="large"),
+            },
+        )
 
     # ── Edit only what needs a human decision ──────────────────────────
     actionable = [r for r in rows if r["status"] in ("mismatch", "manual")]
