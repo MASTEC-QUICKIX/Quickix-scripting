@@ -39,7 +39,16 @@ def _bearer_pre_value(pre_vals, pre_key, entry):
     identities' bearer values live in the same dict and the flat
     (untagged) key only ever holds the LTE side. Falls back to the flat
     key for OAM fields (no _lte/_nr split - confirmed shared) and for any
-    entry with no tech (non-TMBB, single-technology log)."""
+    entry with no tech (non-TMBB, single-technology log).
+
+    A Secondary identity has NO OAM of its own — OAM belongs to the
+    physical node as a whole and is reported once, under the Primary
+    only (confirmed: EDP itself never publishes a separate OAM target
+    for a Secondary). So oam_* fields return None here for a Secondary
+    entry rather than the log's single shared OAM value, which would
+    otherwise look like it belongs to the Secondary too."""
+    if entry.get("role") == "Secondary" and pre_key.startswith("oam_"):
+        return None
     tech = entry.get("tech")
     if tech and pre_key in ("bearer_vlan", "bearer_ip", "bearer_router_ip"):
         return pre_vals.get(f"{pre_key}_{tech.lower()}") or pre_vals.get(pre_key)
