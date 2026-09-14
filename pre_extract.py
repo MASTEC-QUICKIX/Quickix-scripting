@@ -1023,14 +1023,28 @@ def extract_transport_port_mode(text, board_model):
     the Transport=1,EthernetPort=<name> MO expected for this board
     generation - confirmed directly against real logs: G2 (6630/5216)
     tries TN_A then TN_B, G3 (6648/6651) tries TN_IDL_B, G4 (6672) tries
-    TN_IDL_C. Returns (port_name_used, mapped_size) or (None, None) if the
-    board has no known port mapping, or none of its candidate ports appear
-    in this particular log (a real, confirmed case — not every log has
-    every candidate port configured)."""
+    TN_IDL_C. Returns (port_name_used, mapped_size) or (None, None) if
+    NONE of the known port names (this board's own, or any other
+    generation's) appear in this particular log.
+
+    board_model is CIQ's DU type - the TARGET/POST board, which on a
+    board-swap site can be a different generation than what the Pre log
+    actually shows (the swap hasn't happened yet). Confirmed real case:
+    FCL04120's CIQ DU type is '6672' (G4, port TN_IDL_C), but its Pre log
+    is still on the pre-swap 5216 (G2, port TN_B) - searching only
+    '6672's candidates finds nothing even though the log plainly has a
+    working transport port. So the target board's own candidates are
+    tried first (fast path, and disambiguates when a log could
+    technically match more than one generation), then every OTHER known
+    board's candidates as a fallback - a log only ever has ONE of these
+    port names configured, and the port-name sets don't overlap across
+    generations, so this fallback can't pick the wrong one."""
     if not text:
         return None, None
-    candidates = BOARD_TRANSPORT_PORTS.get(str(board_model).strip(), [])
-    for port in candidates:
+    primary = BOARD_TRANSPORT_PORTS.get(str(board_model).strip(), [])
+    seen = set(primary)
+    fallback = [p for ports in BOARD_TRANSPORT_PORTS.values() for p in ports if p not in seen]
+    for port in primary + fallback:
         m = re.search(re.escape(f"EthernetPort={port}") + r'\r?\n=+\r?\nadmOperatingMode\s+\d+\s*\((\w+)\)', text)
         if m:
             mapped = {"10G_FULL": "10GE", "1G_FULL": "1GE"}.get(m.group(1), m.group(1))
