@@ -878,22 +878,34 @@ def extract_bearer_oam_ipv6(text):
     IPV6_SIAD_BEARER_IP_DEF_ROUTER, OAM_ENODEB_SIAD_OAM_VLAN,
     IPV6_ENODEB_OAM_IP, IPV6_SIAD_OAM_IP_DEF_ROUTER.
 
-    Confirmed against real logs across all three node shapes:
+    Confirmed against real logs across all node shapes:
       - LTE-only (HXL00147): bearer router 'LTE', OAM router 'vr_OAM'.
       - 5G-only (HXIN090147F): bearer router 'NR', OAM router 'OAM'
         (a pure 5G node has NO 'LTE'-named router at all - this differs
         from the dual-tech case below, so 'NR' must be tried too).
-      - Dual-tech (HXL04147): the 5G carrier's bearer router is STILL
-        named 'LTE' (legacy reuse), OAM router 'OAM'.
+      - Dual-tech/TMBB (HXL04147, FCL04120/FCON094120, OKTN000082/
+        OKL02082): BOTH the LTE (eNodeB) and NR (gNodeB) bearer configs
+        live under the SAME 'Router=LTE' - distinguished only by
+        interface/nexthop SUFFIX, not by router name or by which one is
+        'Primary' in Mixed Mode Info:
+          - LTE-technology side:  InterfaceIPv6=1,  NextHop=1
+          - NR-technology side:   InterfaceIPv6=NR, NextHop=NR
+        Confirmed on TWO real sites where this suffix maps to OPPOSITE
+        Primary/Secondary roles each time (FCL04120: eNodeB=Primary is
+        the '=1' side; OKTN000082: gNodeB=Primary is the '=NR' side) -
+        so the suffix is purely LTE-vs-NR technology, never a role. OAM
+        has only ONE interface either way (confirmed both sites) - it is
+        genuinely shared between the two identities, not a missing
+        extraction.
 
-    Chain used — VlanPort lookup stays scoped to its own command's block
+    Chain used - VlanPort lookup stays scoped to its own command's block
     (confirmed necessary: scanning the whole file let an unrelated VlanPort
-    with a matching reservedBy target win by appearing later — see the
+    with a matching reservedBy target win by appearing later - see the
     setdefault comment below), while the IP-address and NextHop lookups
     scan the whole raw log text rather than relying on matching one
     specific command's block (get_command_block() only returns the FIRST
     command whose text contains a given substring, which is fragile
-    against a differently-worded command or a different capture tool) —
+    against a differently-worded command or a different capture tool) -
     same underlying MO chain, just searched for more broadly where that's
     safe to do:
       1. VlanPort records ('Transport=1,VlanPort=<id>' MO blocks, within
@@ -908,15 +920,25 @@ def extract_bearer_oam_ipv6(text):
          primaryAddress=true record is used, since an interface can carry
          more than one AddressIPv6 child.
       3. NextHop records ('Router=X,RouteTableIPv6Static=1,Dst=1,
-         NextHop=1' attribute rows), searched across the whole log - the
+         NextHop=Y' attribute rows, Y matching the SAME '1'/'NR' suffix
+         as the interface above), searched across the whole log - the
          interface's default-router IPv6 address.
 
     Returns a dict; any field this log's captured commands don't cover is
     None rather than guessed. VLAN IDs found this way should be expected
-    to occasionally disagree with EDP's published value — confirmed on a
+    to occasionally disagree with EDP's published value - confirmed on a
     real site where Pre reported bearer/OAM VLAN 212/211 while EDP
     published 221/220 for the same node; that is a genuine finding this
-    comparison exists to catch, not an extraction bug."""
+    comparison exists to catch, not an extraction bug.
+
+    bearer_vlan/bearer_ip/bearer_router_ip (no suffix) are a convenience
+    alias - whichever of the LTE/NR pair is present, for single-technology
+    (non-TMBB) nodes that only ever have one. On a TMBB node with BOTH
+    present, the alias is the LTE side; callers that need to attribute the
+    right value to the right node identity (Primary vs Secondary - which
+    is which varies by site, per the confirmed cases above) must use
+    bearer_vlan_lte/bearer_vlan_nr directly, matched against whichever
+    identity (eNodeB Name vs gNodeB Name) that node actually is."""
     if not text:
         return {}
 
@@ -937,14 +959,18 @@ def extract_bearer_oam_ipv6(text):
             # correct one, since dict[key]=value always keeps the LAST match
             # in file order; setdefault keeps the FIRST, which is the real
             # OAM VLAN in every log checked (HXL00147/HXIN090147F/HXL04147/
-            # TNL04504/OKL00082/OKTN000082) — the real bearer/OAM VlanPorts
+            # TNL04504/OKL00082/OKTN000082) - the real bearer/OAM VlanPorts
             # are numbered low (2xx) and listed before feature VLANs like
             # ULCoMP/ERAN in this command's own output order.
             router_iface_to_vlan.setdefault(rb_m.group(1), vlan_m.group(1))
 
-    bearer_key = next((k for k in router_iface_to_vlan if re.match(r'Router=(?:LTE|NR),InterfaceIPv6=', k)), None)
+    bearer_key_lte = next((k for k in router_iface_to_vlan
+                           if re.match(r'Router=(?:LTE|NR),InterfaceIPv6=(?!NR\b)\S+', k)), None)
+    bearer_key_nr = next((k for k in router_iface_to_vlan
+                          if re.match(r'Router=(?:LTE|NR),InterfaceIPv6=NR$', k)), None)
     oam_key = next((k for k in router_iface_to_vlan if re.match(r'Router=(?:vr_OAM|OAM),InterfaceIPv6=', k)), None)
-    bearer_vlan = router_iface_to_vlan.get(bearer_key)
+    bearer_vlan_lte = router_iface_to_vlan.get(bearer_key_lte)
+    bearer_vlan_nr = router_iface_to_vlan.get(bearer_key_nr)
     oam_vlan = router_iface_to_vlan.get(oam_key)
 
     def _primary_address(router_iface_key):
@@ -956,31 +982,31 @@ def extract_bearer_oam_ipv6(text):
         addr_m = re.search(re.escape(router_iface_key) + r',AddressIPv6=\d+\s+address\s+(\S+)', text)
         return addr_m.group(1) if addr_m else None
 
-    bearer_ip = _primary_address(bearer_key)
+    bearer_ip_lte = _primary_address(bearer_key_lte)
+    bearer_ip_nr = _primary_address(bearer_key_nr)
     oam_ip = _primary_address(oam_key)
 
-    def _nexthop_address(router_name):
-        pat = rf'Router={re.escape(router_name)},RouteTableIPv6Static=1,Dst=1,NextHop=1\s*\n=+\naddress\s+(\S+)'
+    def _nexthop_address(router_name, suffix='1'):
+        pat = (rf'Router={re.escape(router_name)},RouteTableIPv6Static=1,Dst=1,'
+               rf'NextHop={re.escape(suffix)}\s*\n=+\naddress\s+(\S+)')
         m = re.search(pat, text)
         return m.group(1) if m else None
 
-    bearer_router_ip = _nexthop_address('LTE') or _nexthop_address('NR')
-    oam_router_ip = _nexthop_address('vr_OAM') or _nexthop_address('OAM')
+    bearer_router_ip_lte = _nexthop_address('LTE', '1') or _nexthop_address('NR', '1')
+    bearer_router_ip_nr = _nexthop_address('LTE', 'NR') or _nexthop_address('NR', 'NR')
+    oam_router_ip = _nexthop_address('vr_OAM', '1') or _nexthop_address('OAM', '1')
 
     return {
-        'bearer_vlan': bearer_vlan, 'oam_vlan': oam_vlan,
-        'bearer_ip': bearer_ip, 'oam_ip': oam_ip,
-        'bearer_router_ip': bearer_router_ip, 'oam_router_ip': oam_router_ip,
+        'bearer_vlan': bearer_vlan_lte or bearer_vlan_nr, 'oam_vlan': oam_vlan,
+        'bearer_ip': bearer_ip_lte or bearer_ip_nr, 'oam_ip': oam_ip,
+        'bearer_router_ip': bearer_router_ip_lte or bearer_router_ip_nr, 'oam_router_ip': oam_router_ip,
+        # Explicit per-technology values for TMBB nodes carrying both -
+        # caller matches these to Primary/Secondary by identity (eNodeB
+        # vs gNodeB), not by which one happens to come first. OAM has no
+        # _lte/_nr split - confirmed genuinely shared, single interface.
+        'bearer_vlan_lte': bearer_vlan_lte, 'bearer_ip_lte': bearer_ip_lte, 'bearer_router_ip_lte': bearer_router_ip_lte,
+        'bearer_vlan_nr': bearer_vlan_nr, 'bearer_ip_nr': bearer_ip_nr, 'bearer_router_ip_nr': bearer_router_ip_nr,
     }
-
-
-# Confirmed board-generation -> transport EthernetPort name mapping (G2
-# boards can show either TN_A or TN_B in practice, hence trying both).
-BOARD_TRANSPORT_PORTS = {
-    "6630": ["TN_A", "TN_B"], "5216": ["TN_A", "TN_B"],   # G2
-    "6648": ["TN_IDL_B"], "6651": ["TN_IDL_B"],            # G3
-    "6672": ["TN_IDL_C"],                                   # G4
-}
 
 
 def extract_transport_port_mode(text, board_model):
