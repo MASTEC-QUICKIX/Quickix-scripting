@@ -23,6 +23,28 @@ import ciq_edp_reader as cer
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Checklist_RRNRBL.xlsx")
 
+
+def _log_text_for(entry, node_logs_text):
+    """The Pre log text for a node_role_list entry - a Secondary's own
+    name never appears as a log filename/AMOS prompt, so log_alias (set
+    to the Primary on the same Mixed Mode Info row) is used instead when
+    present."""
+    return (node_logs_text or {}).get(entry.get("log_alias") or entry["node"])
+
+
+def _bearer_pre_value(pre_vals, pre_key, entry):
+    """Pick the right side of a bearer_vlan/bearer_ip/bearer_router_ip
+    value out of pre_extract.extract_bearer_oam_ipv6()'s result, using the
+    entry's tech (LTE/NR) when set - REQUIRED on a TMBB node, where both
+    identities' bearer values live in the same dict and the flat
+    (untagged) key only ever holds the LTE side. Falls back to the flat
+    key for OAM fields (no _lte/_nr split - confirmed shared) and for any
+    entry with no tech (non-TMBB, single-technology log)."""
+    tech = entry.get("tech")
+    if tech and pre_key in ("bearer_vlan", "bearer_ip", "bearer_router_ip"):
+        return pre_vals.get(f"{pre_key}_{tech.lower()}") or pre_vals.get(pre_key)
+    return pre_vals.get(pre_key)
+
 STATUS_META = {
     "match": ("PASS", True),
     "mismatch": ("FAIL", False),
@@ -828,9 +850,28 @@ EDP_FIELD_TABLE_COLUMNS = [
 
 
 def build_primary_secondary_node_list(ciq_wb):
-    """One {node, role} entry per PHYSICAL node declared in Mixed Mode
-    Info — both the Primary (whichever of eNodeB/gNodeB Name matches 'Node
-    to be built as') and the Secondary (the other one), when both exist.
+    """One {node, role, tech, log_alias} entry per identity declared in
+    Mixed Mode Info — both the Primary (whichever of eNodeB/gNodeB Name
+    matches 'Node to be built as') and the Secondary (the other one),
+    when both exist.
+
+    Each Mixed Mode Info ROW stands alone: 'Node to be built as' is
+    always the real log/AMOS node id for that row, and the row's OTHER
+    identity (Secondary) lives inside that SAME log — a Secondary is
+    never a separately uploaded log. log_alias on a Secondary entry
+    names which key to use against node_logs_text (always the Primary on
+    the same row).
+
+    tech is 'LTE' if that entry came from eNodeB Name, 'NR' if from
+    gNodeB Name — this is a TECHNOLOGY tag, not a role tag. On a TMBB
+    node both identities' bearer VLAN/IP/default-router live under the
+    same log's 'Router=LTE', split only by an InterfaceIPv6/NextHop
+    suffix ('1' for LTE-tech, 'NR' for NR-tech) — see
+    pre_extract.extract_bearer_oam_ipv6. WHICH identity (LTE or NR) is
+    Primary varies by site — confirmed opposite on two real sites
+    (FCL04120: eNodeB/LTE is Primary; OKTN000082: gNodeB/NR is Primary)
+    — so tech must be read off the actual identity, never assumed from
+    role.
 
     This does NOT reuse checked_nodes (run_validation.py's own node list):
     checked_nodes only ever holds the PRIMARY name ('Node to be built as'),
@@ -855,9 +896,11 @@ def build_primary_secondary_node_list(ciq_wb):
         else:
             primary, secondary = (e_name or g_name), (g_name if e_name else "")
         if primary:
-            out.append({"node": primary, "role": "Primary"})
+            primary_tech = "LTE" if primary == e_name else ("NR" if primary == g_name else None)
+            out.append({"node": primary, "role": "Primary", "tech": primary_tech})
         if secondary and bbu_mode != "SMBB":
-            out.append({"node": secondary, "role": "Secondary"})
+            secondary_tech = "NR" if secondary == g_name else ("LTE" if secondary == e_name else None)
+            out.append({"node": secondary, "role": "Secondary", "tech": secondary_tech, "log_alias": primary})
     return out
 
 
@@ -924,14 +967,14 @@ def build_pre_vs_edp_ipv6_table(node_logs_text, node_role_list, edp_rows):
     out = []
     for entry in node_role_list:
         nid = entry["node"]
-        log_text = (node_logs_text or {}).get(nid)
+        log_text = _log_text_for(entry, node_logs_text)
         if not log_text:
             continue
         pre_vals = pe.extract_bearer_oam_ipv6(log_text)
         rows = cer.edp_rows_for_site(edp_rows, nid)
         edp_rec = rows[0] if rows else None
         for pre_key, edp_key, label, is_ipv6 in field_map:
-            pre_v = pre_vals.get(pre_key)
+            pre_v = _bearer_pre_value(pre_vals, pre_key, entry)
             edp_v = _norm(edp_rec.get(edp_key)) if edp_rec else None
             if pre_v is None and not edp_v:
                 continue  # neither side has data - nothing to show
@@ -988,13 +1031,13 @@ def build_pre_vs_edp_pivot_rows(node_logs_text, node_role_list, edp_rows, ciq_wb
     out = []
     for entry in node_role_list:
         nid = entry["node"]
-        log_text = (node_logs_text or {}).get(nid)
+        log_text = _log_text_for(entry, node_logs_text)
         pre_vals = pe.extract_bearer_oam_ipv6(log_text) if log_text else {}
         rows = cer.edp_rows_for_site(edp_rows, nid)
         edp_rec = rows[0] if rows else None
         row = {"label": f"{nid} ({role_short.get(entry['role'], entry['role'][:1])})"}
         for pre_key, edp_key, out_key in field_map:
-            row[f"{out_key}_pre"] = pre_vals.get(pre_key) or "—"
+            row[f"{out_key}_pre"] = _bearer_pre_value(pre_vals, pre_key, entry) or "—"
             row[f"{out_key}_edp"] = _norm(edp_rec.get(edp_key)) if edp_rec else "—"
 
         # SIAD port size: Pre side is the transport EthernetPort's
@@ -1233,13 +1276,13 @@ def _pre_vs_edp_field_status(node_logs_text, node_role_list, edp_rows, pre_key, 
     bad, checked, no_pre = [], 0, []
     for entry in node_role_list:
         nid = entry["node"]
-        log_text = (node_logs_text or {}).get(nid)
+        log_text = _log_text_for(entry, node_logs_text)
         rows = cer.edp_rows_for_site(edp_rows, nid)
         edp_v = _norm(rows[0].get(edp_col)) if rows else ""
         if not log_text:
             no_pre.append(nid)
             continue
-        pre_v = pe.extract_bearer_oam_ipv6(log_text).get(pre_key) or ""
+        pre_v = _bearer_pre_value(pe.extract_bearer_oam_ipv6(log_text), pre_key, entry) or ""
         if not pre_v or not edp_v:
             continue
         checked += 1
@@ -1310,7 +1353,7 @@ def build_checklist_field_table(node_role_list, node_logs_text, edp_rows, ciq_wb
     out = []
     for entry in node_role_list:
         nid, role = entry["node"], entry["role"]
-        log_text = (node_logs_text or {}).get(nid)
+        log_text = _log_text_for(entry, node_logs_text)
         pre_net_vals = pe.extract_bearer_oam_ipv6(log_text) if log_text else {}
         rows = cer.edp_rows_for_site(edp_rows, nid)
         edp_rec = rows[0] if rows else None
@@ -1332,7 +1375,7 @@ def build_checklist_field_table(node_role_list, node_logs_text, edp_rows, ciq_wb
                     pre_v = ""
                     status = "unknown"
             elif edp_col in _PRE_NETWORK_FIELD_MAP:
-                pre_v = pre_net_vals.get(_PRE_NETWORK_FIELD_MAP[edp_col]) or ""
+                pre_v = _bearer_pre_value(pre_net_vals, _PRE_NETWORK_FIELD_MAP[edp_col], entry) or ""
                 status = "unknown" if not pre_v or not edp_v else (
                     "match" if pre_v == edp_v else "mismatch")
             else:
