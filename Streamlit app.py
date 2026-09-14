@@ -469,8 +469,6 @@ def build_rfds_grouped_rows(results, ciq_wb, rfds_pages, rfds_bytes=None):
         _rfds_id = str(ci.get("rfds_rcn") or "").strip()
         if not ci or not _rfds_id or _rfds_id == "NOT CHECKED":
             cellid_status = "SKIPPED"
-        elif _rfds_id == "NOT FOUND":
-            cellid_status = "MISMATCH"
         else:
             cellid_status = "MATCH" if _ciq_id == _rfds_id else "MISMATCH"
         ant_tier = an.get("tier")
@@ -1308,7 +1306,13 @@ with tab_rfds:
             ciq_label = f"{n} XMU" if n else ("0 XMU" if n == 0 else "—")
             rfds_val = r.get("rfds_xmu")
             rfds_label = "XMU Found" if rfds_val is True else ("XMU Not Found" if rfds_val is False else "NOT CHECKED")
-            comments = "Match" if r.get("status") == "MATCH" else f"XMU mismatch found on the {r.get('node')}."
+            status = r.get("status")
+            if status == "MATCH":
+                comments = "Match"
+            elif status == "MISMATCH":
+                comments = f"XMU mismatch found on the {r.get('node')}."
+            else:
+                comments = r.get("note") or "Not checked."
             display_rows.append(dict(r, ciq_xmu=ciq_label, rfds_xmu=rfds_label, comments=comments))
         st.markdown(render_table_with_comments(display_rows, columns=[("node", "Node"), ("ciq_xmu", "CIQ XMU"),
                                                                         ("rfds_xmu", "RFDS XMU")],
