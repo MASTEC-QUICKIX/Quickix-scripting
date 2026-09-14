@@ -666,23 +666,75 @@ def extract_sw_version(text):
     return {'sw_package': m.group('package'), 'sw_version': m.group('version')}
 
 
+def _row_value(row, attr_name):
+    """A row's value for attr_name, regardless of table shape. Wide tables
+    (bulk kget-all/lt all dumps) have the attribute as its own column:
+    row.get(attr_name) directly. Narrow tables (individual 'get <MO>
+    <attr>' commands - confirmed real shape, e.g. 'get ^ENodeBFunction=1
+    eNBId') have exactly one attribute per row under generic 'Attribute'/
+    'Value' columns instead: {'MO':.., 'Attribute': 'eNBId', 'Value':
+    '704120'} - row.get(attr_name) on THIS shape returns None even though
+    the value is right there, since 'eNBId' is a value, not a key."""
+    if attr_name in row:
+        return row.get(attr_name)
+    if row.get('Attribute') == attr_name:
+        return row.get('Value')
+    return None
+
+
 def extract_identity(parsed):
-    """Rule #2/12/14/17 (collapsed): eNBId (from ENodeBFunction=1) and gNBId
-    (from GNBDUFunction=1, per the confirmed preference over CUCP/CUUP).
+    """Rule #2/12/14/17 (collapsed): eNBId (from ENodeBFunction=1) and gNBId.
     Returns {'eNBId': str|None, 'gNBId': str|None, 'gNBIdLength': str|None}.
     None values mean that identity type genuinely isn't present on this node
-    (e.g. an LTE-only node has no gNBId at all)."""
-    entry = find_command(parsed, 'eNBId|gNBId')
+    (e.g. an LTE-only node has no gNBId at all).
+
+    Two separate find_command() calls, not one search for 'eNBId|gNBId' —
+    confirmed real bug: find_command() does plain substring matching, not
+    regex, so a single combined search for the literal text 'eNBId|gNBId'
+    can only ever match a command whose own text contains that exact pipe
+    character. Real logs run these as two SEPARATE commands
+    ('get ^ENodeBFunction=1 eNBId' and 'get GNBCUUPFunction=1 gNBId'),
+    neither of which contains 'eNBId|gNBId' as a substring — so this
+    returned nothing for eNBId OR gNBId on every node, regardless of which
+    MO gNBId is reported under.
+
+    gNBId source: GNBDUFunction preferred when present, but NOT the only
+    source — confirmed real case (FCL04120/FCL07900R/FCL09220R): the
+    'get gNBId' command output only ever showed a GNBCUUPFunction=1 row,
+    never GNBDUFunction. Falls back to GNBCUUPFunction, then
+    GNBCUCPFunction, whichever this particular log actually reports it
+    under.
+
+    Uses _row_value() rather than row.get(attr) directly — confirmed real
+    case: these same commands parse into the narrow MO/Attribute/Value
+    table shape (one attribute per row), not the wide one-column-per-
+    attribute shape row.get('eNBId') assumes."""
     result = {'eNBId': None, 'gNBId': None, 'gNBIdLength': None}
-    if not entry:
-        return result
-    for row in all_rows(entry):
-        mo = row.get('MO', '')
-        if mo.startswith('ENodeBFunction') and row.get('eNBId'):
-            result['eNBId'] = row['eNBId']
-        elif mo.startswith('GNBDUFunction') and row.get('gNBId'):
-            result['gNBId'] = row['gNBId']
-            result['gNBIdLength'] = row.get('gNBIdLength')
+    fallback_gnbid, fallback_gnbid_len = None, None
+    for entry in (find_command(parsed, 'eNBId'), find_command(parsed, 'gNBId')):
+        if entry is None:
+            continue
+        for row in all_rows(entry):
+            mo = row.get('MO', '')
+            enbid = _row_value(row, 'eNBId')
+            gnbid = _row_value(row, 'gNBId')
+            gnbid_len = _row_value(row, 'gNBIdLength')
+            if mo.startswith('ENodeBFunction') and enbid:
+                result['eNBId'] = enbid
+            elif mo.startswith('GNBDUFunction'):
+                if gnbid:
+                    result['gNBId'] = gnbid
+                if gnbid_len:
+                    result['gNBIdLength'] = gnbid_len
+            elif mo.startswith(('GNBCUUPFunction', 'GNBCUCPFunction')):
+                if gnbid and fallback_gnbid is None:
+                    fallback_gnbid = gnbid
+                if gnbid_len and fallback_gnbid_len is None:
+                    fallback_gnbid_len = gnbid_len
+    if result['gNBId'] is None and fallback_gnbid is not None:
+        result['gNBId'] = fallback_gnbid
+    if result['gNBIdLength'] is None and fallback_gnbid_len is not None:
+        result['gNBIdLength'] = fallback_gnbid_len
     return result
 
 
