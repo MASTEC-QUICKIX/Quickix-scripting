@@ -765,10 +765,33 @@ def check_nodes_present_together(pages, node_a, node_b, rfds_bytes=None):
     CommonName group?
 
     Prefers the table-based lookup (extract_common_name_groups) when the
-    RFDS bytes are available, since a wrapped CommonName can't be reassembled
-    from page text - see that function's docstring. Falls back to the
-    whitespace-collapsed text check for the zip-bundle/OCR format, where
-    the fragments do sit adjacently ('SCL05020,SCCN0050' + '20')."""
+    RFDS bytes are available, since a wrapped CommonName can't be
+    reassembled from page text in the general case - see that function's
+    docstring. A POSITIVE table match is trusted immediately. A table
+    MISS is not trusted as final, though - confirmed real case
+    (2788253_RFDS-37756.pdf, FCL04120/FCON094120): pdfplumber's table
+    extraction collapsed that entire row (26 wrapped LinkedCells lines)
+    into a single blob cell, landing everything in column 0 and leaving
+    the CommonName column None for that row - extract_common_name_groups
+    correctly skips a row with no CommonName cell, so the group came back
+    incomplete ([['FCL09220R']], missing this pair entirely) despite
+    reading a real PDF with a real table. Falls through to the
+    single-record and whitespace-collapsed text checks below whenever the
+    table says 'not found', rather than returning False outright - those
+    read PLAIN PAGE TEXT rather than pdfplumber's table-cell grid, so
+    they don't inherit this row's cell-alignment failure (confirmed: the
+    whitespace-collapsed text check finds 'FCL04120,FCON094120' correctly
+    on this exact PDF, cleanly rejoining the 'FCON0941'+'20' line-wrap -
+    the table path is a different code path with a different, unrelated
+    failure mode).
+
+    If the table extraction ran at all (rfds_bytes given, groups not
+    None) but STILL can't confirm the pair even after the text fallback,
+    the result is None (inconclusive/not checked), not False - a
+    confirmed false negative already came from this exact combination
+    once; a caller-visible MISMATCH should require an unambiguous
+    contradiction, not just every fallback failing to find a match."""
+    table_was_inconclusive = False
     if rfds_bytes is not None:
         groups = extract_common_name_groups(rfds_bytes)
         if groups is not None:
@@ -777,7 +800,10 @@ def check_nodes_present_together(pages, node_a, node_b, rfds_bytes=None):
                 upper = [n.upper() for n in g]
                 if a in upper and b in upper:
                     return True
-            return False
+            # Not found in the table extraction - fall through rather than
+            # returning False here; see docstring for the confirmed false-
+            # negative case this avoids.
+            table_was_inconclusive = True
         # Table extraction found no usable rows at all - confirmed real case:
         # a 33-cell LinkedCells list collapsed the entire equipment row into
         # one merged cell, and the CommonName value itself wraps mid-digit
@@ -802,7 +828,44 @@ def check_nodes_present_together(pages, node_a, node_b, rfds_bytes=None):
     collapsed = re.sub(r'\s+', '', text)
     pair_a = f"{node_a},{node_b}"
     pair_b = f"{node_b},{node_a}"
-    return (pair_a in collapsed) or (pair_b in collapsed)
+    if (pair_a in collapsed) or (pair_b in collapsed):
+        return True
+
+    # A CommonName wrap where the completing fragment lands several lines
+    # AWAY, not immediately adjacent - confirmed real case on this exact
+    # PDF (2788253_RFDS-37756.pdf): pdfplumber's text extraction
+    # interleaves a wrapped cell with OTHER columns' own line-wraps, so
+    # 'FCL04120,FCON0941' and its completing '20' end up separated by a
+    # whole unrelated line ('BBU ERICSSON FCL04120_9B_1 LTE,5G 64921 -
+    # UPDATE') that a plain whitespace-collapse can't bridge. Uses a
+    # SINGLE-space normalization (not the fully-collapsed 'collapsed'
+    # above) for the window search specifically: collapsing all
+    # whitespace to nothing merges '6672 20' into '667220', destroying
+    # the very space needed to tell where the wrapped suffix ends -
+    # confirmed real failure of an earlier version of this fix. A single
+    # space preserves that boundary so \b can isolate '20' from the
+    # unrelated '6672' next to it.
+    spaced = re.sub(r'\s+', ' ', text)
+    for name_a, name_b in ((node_a, node_b), (node_b, node_a)):
+        a, b = str(name_a).strip().upper(), str(name_b).strip().upper()
+        prefix_pat = re.escape(a) + ","
+        for m in re.finditer(prefix_pat, spaced):
+            start = m.end()
+            for cut in range(len(b) - 1, 0, -1):
+                prefix, suffix = b[:cut], b[cut:]
+                if spaced[start:start + len(prefix)] != prefix:
+                    continue
+                window = spaced[start + len(prefix):start + len(prefix) + 200]
+                if re.search(r'\b' + re.escape(suffix) + r'\b', window):
+                    return True
+                break  # longest matching prefix found for this occurrence; a
+                       # shorter one would just be a substring of it — no point trying more
+
+    # Every check missed. If the table extraction ran and returned SOME
+    # groups (just not this one), that's a confirmed-possible false
+    # negative, not proof of a real mismatch - report inconclusive rather
+    # than a caller-visible MISMATCH.
+    return None if table_was_inconclusive else False
 
 
 def extract_non_rf_inventory_cells(pages):
