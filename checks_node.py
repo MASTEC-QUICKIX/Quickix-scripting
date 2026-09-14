@@ -148,7 +148,17 @@ def check_primary_secondary(node_id, edp_rows, mm_row, rfds_pages=None, rfds_byt
         import rfds_extract as rf
         present = rf.check_nodes_present_together(rfds_pages, primary, secondary, rfds_bytes) if secondary else None
         if secondary:
-            rfds_label = ciq_label if present else 'NOT FOUND IN RFDS'
+            # present is True/False/None (inconclusive - every extraction
+            # path missed but the table read real data, confirmed real
+            # false-negative case in check_nodes_present_together's own
+            # docstring). Only a confirmed False is a real RFDS miss;
+            # None must not read as one.
+            if present is True:
+                rfds_label = ciq_label
+            elif present is False:
+                rfds_label = 'NOT FOUND IN RFDS'
+            else:
+                rfds_label = 'NOT CHECKED'
         else:
             rfds_label = ciq_label  # single-identity node - nothing to cross-confirm pairing on
 
@@ -285,12 +295,24 @@ def check_xmu_rfds_vs_ciq(node_id, enb_row, gnb_row, rfds_pages, rfds_bytes=None
                     f'CIQ XMU present={ciq_has_xmu}, RFDS XMU present={rfds_has_xmu} (node-specific).'
                 return {'rule': '#27', 'node': node_id, 'status': 'MATCH' if match else 'MISMATCH',
                         'ciq_xmu': ciq_has_xmu, 'rfds_xmu': rfds_has_xmu, 'note': note}
-            # Node parsed successfully but isn't listed in the RFDS at all.
-            # Do NOT fall through to the page-wide check here: another node's
-            # XMU on the same page would be reported as this node's, which is
-            # exactly backwards (confirmed on a real site - OKL00082 is absent
-            # from the RFDS entirely, yet inherited OKTN000082's XMU and was
-            # flagged as a mismatch against a correct CIQ).
+            # Node parsed successfully but isn't listed in the RFDS TABLE at
+            # all. Does NOT fall through to a page-wide 'XMU' search here:
+            # another node's XMU on the same page would be reported as this
+            # node's, which is exactly backwards (confirmed on a real site -
+            # OKL00082 is absent from the RFDS entirely, yet inherited
+            # OKTN000082's XMU and was flagged as a mismatch against a
+            # correct CIQ). _xmu_present_via_text avoids that by anchoring
+            # to THIS node's own cell mentions first and returning None
+            # (not False) when even those aren't found, so an absent node
+            # still falls through to SKIPPED below rather than borrowing a
+            # neighbor's answer.
+            text_result = rf._xmu_present_via_text(rfds_pages, node_id)
+            if text_result is not None:
+                match = ciq_has_xmu == text_result
+                note = 'Confirmed (text fallback — table extraction missed this node\'s row).' if match else \
+                    f'CIQ XMU present={ciq_has_xmu}, RFDS XMU present={text_result} (text fallback).'
+                return {'rule': '#27', 'node': node_id, 'status': 'MATCH' if match else 'MISMATCH',
+                        'ciq_xmu': ciq_has_xmu, 'rfds_xmu': text_result, 'note': note}
             return {'rule': '#27', 'node': node_id, 'status': 'SKIPPED',
                     'ciq_xmu': ciq_has_xmu, 'rfds_xmu': None,
                     'note': 'Node not listed in RFDS Non RF Inventory — nothing to compare.'}
