@@ -987,22 +987,18 @@ def extract_bearer_oam_ipv6(text):
     oam_ip = _primary_address(oam_key)
 
     def _nexthop_address(router_name, suffix='1'):
-        if not text:
-            return None
-        
-        # Matches either:
-        # 1. Single-line: Router=LTE...NextHop=1 ... address 2001:...
-        # 2. Block-dump:  Router=LTE...NextHop=1 \n === \n address 2001:...
-        pat = (
-            rf'Router={re.escape(router_name)}[^\n\r]*?'
-            rf'NextHop={re.escape(suffix)}'
-            r'(?:[^\n\r]*?|\s*\r?\n=+\r?\n[^\n\r]*?)'
-            r'\baddress\s*[:=]?\s*([0-9a-fA-F:]+)'
-        )
+        # \r?\n, not bare \n: confirmed real bug — text decoded via
+        # bytes.decode() (app.py's actual path: u.getvalue().decode(...))
+        # keeps literal \r\n, unlike Python's open() in text mode, which
+        # silently normalizes \r\n -> \n (universal newlines) and had
+        # been masking this in every test run so far. A bare \n right
+        # after the '=====' divider line failed to match the real \r
+        # sitting there, so this NEVER matched in production even though
+        # it matched every local test.
+        pat = (rf'Router={re.escape(router_name)},RouteTableIPv6Static=1,Dst=1,'
+               rf'NextHop={re.escape(suffix)}\s*\n=+\r?\naddress\s+(\S+)')
         m = re.search(pat, text)
         return m.group(1) if m else None
-    m = re.search(pat, text)
-    return m.group(1) if m else None
 
     bearer_router_ip_lte = _nexthop_address('LTE', '1') or _nexthop_address('NR', '1')
     bearer_router_ip_nr = _nexthop_address('LTE', 'NR') or _nexthop_address('NR', 'NR')
