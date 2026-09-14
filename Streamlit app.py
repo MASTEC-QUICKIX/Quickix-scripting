@@ -709,19 +709,15 @@ def render_rrnrbl_checklist(rows):
     alignment kept breaking.
 
     So the two jobs are split, each using the API actually built for it:
-      - DISPLAY: st.dataframe + a pandas Styler, one per category. This
-        is a first-class, documented Streamlit feature (not internals-
-        guessing) that gives real whole-row background colour, guaranteed
-        column alignment (glide-data-grid, the same engine data_editor
-        uses), bold headers by default, and one fixed row_height for even
-        sizing — everything asked for, with zero custom CSS beyond the
-        existing qkx-cat-banner.
-      - EDIT: a plain list of native checkbox + text_input pairs, scoped
-        to only the rows a person would actually act on (mismatch/manual
-        — a passing row needs no review). Small, ordinary Streamlit
-        widgets in their default layout, which has never had an alignment
-        problem in this app; the fragility was always the CUSTOM full-row
-        styling, not Streamlit's own widgets.
+      - DISPLAY: st.dataframe/Styler-driven background+color tint on the
+        disabled columns (Check, Scope) — real whole-row-ish colour via a
+        first-class documented Streamlit feature, guaranteed column
+        alignment (glide-data-grid), bold headers, fixed row_height.
+      - EDIT: Tick and Remarks are both live-editable cells in this same
+        grid (st.data_editor) — no separate review section. Editable
+        cells can't carry the Styler tint (streamlit#10953), which is why
+        Check carries a status icon + bold color instead, so status still
+        reads even with a plain white Tick/Remarks cell next to it.
     """
     import pandas as pd
     from itertools import groupby
@@ -803,48 +799,24 @@ def render_rrnrbl_checklist(rows):
                 "Scope": st.column_config.TextColumn("Scope", width="small"),
                 "Remarks": st.column_config.TextColumn("Remarks", width="large"),
             },
-            disabled=["Check", "Scope", "Remarks"],
+            disabled=["Check", "Scope"],
             key=f"rrnrbl_grid_{cat_idx}",
         )
 
         for i in range(len(cat_df)):
             rid = int(cat_df.loc[i, "_row"])
             new_checked = bool(edited.loc[i, "Tick"])
-            existing_comment = overrides.get(rid, {}).get("comment", "")
-            new_overrides[rid] = {"checked": new_checked, "comment": existing_comment}
+            new_comment = str(edited.loc[i, "Remarks"] or "")
+            new_overrides[rid] = {"checked": new_checked, "comment": new_comment}
 
     st.session_state["rrnrbl_overrides"] = new_overrides
-
-    # ── Edit only what needs a human decision ──────────────────────────
-    actionable = [r for r in rows if r["status"] in ("mismatch", "manual")]
-    if actionable:
-        with st.expander(f"Review & override ({len(actionable)} row(s) need a look)", expanded=False):
-            st.caption("Automated mismatches are pre-ticked (the check ran); untick if it "
-                       "doesn\'t apply. Manual rows start unticked until you\'ve reviewed them.")
-            # Builds on new_overrides (already holds this run's Tick-column
-            # edits from the grid above) rather than resetting to the
-            # pre-grid snapshot — otherwise every rerun would silently
-            # discard any Tick click made outside this expander.
-            for r in actionable:
-                rid = r["row"]
-                ov = overrides.get(rid, {})
-                default_checked = ov.get("checked", r["status"] != "manual")
-                default_comment = ov.get("comment", "" if r["status"] == "manual" else (r.get("detail") or ""))
-                c1, c2 = st.columns([0.28, 0.72])
-                with c1:
-                    checked = st.checkbox(r["item"], value=default_checked, key=f"rrnrbl_ov_{rid}_chk")
-                with c2:
-                    comment = st.text_input("Remarks", value=default_comment,
-                                            key=f"rrnrbl_ov_{rid}_txt", label_visibility="collapsed")
-                new_overrides[rid] = {"checked": checked, "comment": comment}
-            st.session_state["rrnrbl_overrides"] = new_overrides
 
 
 
 def collect_manual_overrides(checklist):
-    """What the user has set in the 'Review & override' section, keyed by
-    checklist row. Untouched rows (never opened, or match/skip rows that
-    never appear there) fall back to the same default the display grid
+    """What the user has set directly in the checklist grid (Tick/Remarks),
+    keyed by checklist row. Untouched rows (never edited, or match/skip
+    rows nobody touched) fall back to the same default the display grid
     itself shows, so the export can never disagree with what was on screen."""
     overrides = st.session_state.get("rrnrbl_overrides", {})
     out = {}
@@ -899,12 +871,8 @@ def run_full_validation(ciq_bytes, edp_bytes, edp_ext, rfds_bytes, node_logs_tex
     edp_path = _tmp_path(edp_bytes, edp_ext or ".xls")
     rfds_path = _tmp_path(rfds_bytes, ".pdf") if rfds_bytes else None
 
-    with tempfile.TemporaryDirectory() as tmp:
-        out_pdf = os.path.join(tmp, "validation_report.pdf")
-        (pdf_path, results, site_details, ciq_wb, edp_rows, checked_nodes, rfds_pages,
-         pre_text, post_text, scope_lines, sow) = rv.run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf)
-        with open(pdf_path, "rb") as f:
-            pdf_bytes = f.read()
+    (_, results, site_details, ciq_wb, edp_rows, checked_nodes, rfds_pages,
+     pre_text, post_text, scope_lines, sow) = rv.run(ciq_path, edp_path, rfds_path, node_logs_text, None)
 
     checklist = rc.build_checklist(results, site_details, ciq_wb, edp_rows, checked_nodes, rfds_pages, node_logs_text)
     site_id_fa = " / ".join(v for v in (site_details.get("site_id"), site_details.get("fa_code")) if v)
@@ -923,7 +891,7 @@ def run_full_validation(ciq_bytes, edp_bytes, edp_ext, rfds_bytes, node_logs_tex
         checked_nodes=checked_nodes, rfds_pages=rfds_pages, rfds_bytes=rfds_bytes,
         pre_text=pre_text, post_text=post_text,
         scope_lines=scope_lines, sow=sow, checklist=checklist, site_id_fa=site_id_fa,
-        pdf_bytes=pdf_bytes, node_logs_text=node_logs_text,
+        node_logs_text=node_logs_text,
         node_role_list=node_role_list, edp_field_rows=edp_field_rows,
         pre_edp_pivot_rows=pre_edp_pivot_rows,
         amos_summary_rows=amos_summary_rows, amos_lte_rows=amos_lte_rows, amos_nr_rows=amos_nr_rows,
@@ -1662,13 +1630,8 @@ with tab_consolidated:
                            lambda: rc.fill_checklist_xlsx(state["checklist"], state["site_id_fa"],
                                                           manual_overrides=manual_overrides),
                            _ov_sig)
-    d1, d2 = st.columns(2)
-    with d1:
-        st.download_button("⬇️ Download PDF", data=state["pdf_bytes"], file_name="validation_report.pdf",
-                            mime="application/pdf", use_container_width=True)
-    with d2:
-        st.download_button("⬇️ Download filled RRNRBL Checklist (.xlsx)", data=checklist_xlsx,
-                            file_name="Checklist_RRNRBL_filled.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True, key="cr_checklist_dl")
-    st.caption("Check a manual box or type a comment above, then click Download again to bake it into the file.")
+    st.download_button("⬇️ Download filled RRNRBL Checklist (.xlsx)", data=checklist_xlsx,
+                        file_name="Checklist_RRNRBL_filled.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True, key="cr_checklist_dl")
+    st.caption("Edit Tick/Remarks in the checklist above, then click Download again to bake it into the file.")
