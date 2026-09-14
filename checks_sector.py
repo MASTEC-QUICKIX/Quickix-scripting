@@ -48,11 +48,19 @@ def check_radio_type(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name, node
         cell = row.get('EutranCellFDDId')
         if not (cell and e_name and str(cell).startswith(e_name)):
             continue
+        # A cell genuinely absent from RFDS has nothing to compare its RRU
+        # type against — check_cells_vs_rfds (#6/#18) already flags the
+        # absence itself. Skipping it here instead of comparing against
+        # the literal string 'NOT FOUND'/'NOT CHECKED', which never
+        # contains the RRU token and so always failed, producing a false
+        # MISMATCH for every such cell.
+        if rfds_pages is not None and cell not in cell_details:
+            continue
         ciq_rru = str(row.get('RRU type', '')).strip()
-        rfds_rrh = cell_details.get(cell, {}).get('rrh', 'NOT FOUND' if rfds_pages is not None else 'NOT CHECKED')
+        rfds_rrh = cell_details.get(cell, {}).get('rrh', 'NOT CHECKED')
         pre_val = _pre_for(cell)
         rru_token = ciq_rru.split()[-1] if ciq_rru else ''
-        rfds_match = bool(rru_token) and rru_token in rfds_rrh
+        rfds_match = rfds_pages is None or (bool(rru_token) and rru_token in rfds_rrh)
         pre_match = pre_val == 'NOT AVAILABLE' or pre_val == ciq_rru
         match = rfds_match and pre_match
         notes = []
@@ -68,11 +76,13 @@ def check_radio_type(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name, node
         cell = row.get('NRCellDU')
         if not (cell and g_name and str(cell).startswith(g_name)):
             continue
+        if rfds_pages is not None and cell not in cell_details:
+            continue
         ciq_rru = str(row.get('RRU Type', '')).strip()
-        rfds_rrh = cell_details.get(cell, {}).get('rrh', 'NOT FOUND' if rfds_pages is not None else 'NOT CHECKED')
+        rfds_rrh = cell_details.get(cell, {}).get('rrh', 'NOT CHECKED')
         pre_val = _pre_for(cell)
         rru_token = ciq_rru.split()[-1] if ciq_rru else ''
-        rfds_match = bool(rru_token) and rru_token in rfds_rrh
+        rfds_match = rfds_pages is None or (bool(rru_token) and rru_token in rfds_rrh)
         pre_match = pre_val == 'NOT AVAILABLE' or pre_val == ciq_rru
         match = rfds_match and pre_match
         notes = []
@@ -772,9 +782,16 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
         cell = row.get('EutranCellFDDId')
         if not (cell and e_name and str(cell).startswith(e_name)):
             continue
+        # A cell genuinely absent from RFDS has nothing to compare its Cell
+        # ID against — that's rule #6/#18's job (check_cells_vs_rfds), not
+        # this check's. Skipping it here instead of comparing CIQ's cellId
+        # against the literal string 'NOT FOUND'/'NOT CHECKED', which
+        # always fails and produced a false MISMATCH for every such cell.
+        if cell not in cell_details:
+            continue
         ciq_id = str(row.get('cellId', '')).strip()
         pre_id = (pre_lte.get(cell) or {}).get('cellId') or 'NA'
-        rfds_rcn = cell_details.get(cell, {}).get('rcn', 'NOT FOUND' if rfds_pages is not None else 'NOT CHECKED')
+        rfds_rcn = cell_details[cell]['rcn']
         match = (ciq_id == rfds_rcn) and (pre_id in ('NA',) or pre_id == ciq_id)
         results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell,
                          'pre': pre_id, 'ciq': ciq_id, 'rfds_rcn': rfds_rcn,
@@ -789,9 +806,11 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
         cell = row.get('NRCellDU')
         if not (cell and g_name and str(cell).startswith(g_name)):
             continue
+        if cell not in cell_details:
+            continue
         ciq_id = str(row.get('cellLocalId', '')).strip()
         pre_id = (pre_5g.get(cell) or {}).get('cellLocalId') or 'NA'
-        rfds_rcn = cell_details.get(cell, {}).get('rcn', 'NOT FOUND' if rfds_pages is not None else 'NOT CHECKED')
+        rfds_rcn = cell_details[cell]['rcn']
         match = (ciq_id == rfds_rcn) and (pre_id in ('NA',) or pre_id == ciq_id)
         results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell,
                          'pre': pre_id, 'ciq': ciq_id, 'rfds_rcn': rfds_rcn,
