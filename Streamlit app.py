@@ -743,13 +743,10 @@ def render_rrnrbl_checklist(rows):
     st.markdown(f'<div style="margin:2px 0 10px 0;">{pills}</div>', unsafe_allow_html=True)
 
     overrides = st.session_state.get("rrnrbl_overrides", {})
-    TICK = {"match": "\u2713", "mismatch": "\u2717", "manual": "\u270e",
-            "unknown": "\u2013", "info": "i", "na": "\u2013"}
 
-    def _tick_for(r):
+    def _checked_for(r):
         ov = overrides.get(r["row"])
-        checked = ov["checked"] if ov is not None else (r["status"] != "manual")
-        return ("\u2611" if checked else "\u2610") + " " + TICK.get(r["status"], "")
+        return ov["checked"] if ov is not None else (r["status"] != "manual")
 
     def _remarks_for(r):
         ov = overrides.get(r["row"])
@@ -758,44 +755,59 @@ def render_rrnrbl_checklist(rows):
         return "" if r["status"] == "manual" else (r.get("detail") or "")
 
     def _tint_row(styler_row, cat_df):
-        # styler_row is the 4-visible-column row Styler passes in for THIS
-        # category's own df; status is looked up from that same cat_df
-        # (not the full rows list), so the index always lines up even
-        # though every category's df restarts at 0.
+        # styler_row is the visible-column row Styler passes in for THIS
+        # category's own df (Tick is disabled here, so it's still tinted
+        # too — only truly editable columns lose background per
+        # streamlit/streamlit#10953); status is looked up from that same
+        # cat_df, so the index always lines up even though every
+        # category's df restarts at 0.
         status = cat_df.loc[styler_row.name, "_status"]
         _, bg = STATUS_COLORS.get(status, DEFAULT_COLOR)
         return [f"background-color:{bg}"] * len(styler_row)
 
-    for cat, group in groupby(rows, key=lambda r: r["cat"]):
+    new_overrides = dict(overrides)
+    for cat_idx, (cat, group) in enumerate(groupby(rows, key=lambda r: r["cat"])):
         group = list(group)
         st.markdown(f'<div class="qkx-cat-banner"><span>{esc(cat)}</span></div>',
                     unsafe_allow_html=True)
 
         cat_df = pd.DataFrame([{
             "Check": r["item"],
-            "Tick": _tick_for(r),
+            "Tick": _checked_for(r),
             "Scope": r.get("tag", ""),
             "Remarks": _remarks_for(r),
+            "_row": r["row"],
             "_status": r["status"],
         } for r in group])
 
-        styled = cat_df.drop(columns=["_status"]).style.apply(
+        styled = cat_df.drop(columns=["_row", "_status"]).style.apply(
             lambda row: _tint_row(row, cat_df), axis=1
         )
 
-        st.dataframe(
+        edited = st.data_editor(
             styled,
             hide_index=True,
             use_container_width=True,
             row_height=34,
             height=len(cat_df) * 34 + 38,
+            column_order=["Check", "Tick", "Scope", "Remarks"],
             column_config={
                 "Check": st.column_config.TextColumn("Check", width="large"),
-                "Tick": st.column_config.TextColumn("Tick", width="small"),
+                "Tick": st.column_config.CheckboxColumn("Tick", width=56),
                 "Scope": st.column_config.TextColumn("Scope", width="small"),
                 "Remarks": st.column_config.TextColumn("Remarks", width="large"),
             },
+            disabled=["Check", "Scope", "Remarks"],
+            key=f"rrnrbl_grid_{cat_idx}",
         )
+
+        for i in range(len(cat_df)):
+            rid = int(cat_df.loc[i, "_row"])
+            new_checked = bool(edited.loc[i, "Tick"])
+            existing_comment = overrides.get(rid, {}).get("comment", "")
+            new_overrides[rid] = {"checked": new_checked, "comment": existing_comment}
+
+    st.session_state["rrnrbl_overrides"] = new_overrides
 
     # ── Edit only what needs a human decision ──────────────────────────
     actionable = [r for r in rows if r["status"] in ("mismatch", "manual")]
@@ -803,7 +815,10 @@ def render_rrnrbl_checklist(rows):
         with st.expander(f"Review & override ({len(actionable)} row(s) need a look)", expanded=False):
             st.caption("Automated mismatches are pre-ticked (the check ran); untick if it "
                        "doesn\'t apply. Manual rows start unticked until you\'ve reviewed them.")
-            new_overrides = dict(overrides)
+            # Builds on new_overrides (already holds this run's Tick-column
+            # edits from the grid above) rather than resetting to the
+            # pre-grid snapshot — otherwise every rerun would silently
+            # discard any Tick click made outside this expander.
             for r in actionable:
                 rid = r["row"]
                 ov = overrides.get(rid, {})
