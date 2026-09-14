@@ -890,6 +890,91 @@ def check_rf_params_5g(node_id, parsed, log_text, ciq_wb, has_pre_log, retuned_c
     return results
 
 
+def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb):
+    """CIQ-only design check (POST/target, not a Pre log check — confirmed):
+    once a physical RiPort is used for one band on this node, no OTHER
+    band/sector may reuse that same port UNLESS the two cells are listed
+    as sharing the same radio — 'Co-Located Technology Cell' is the
+    CONFIRMED field for that (verified against a real CIQ: every port
+    reused there legitimately lists the other cell(s) sharing it, e.g.
+    FCL04120_7A_1 <-> FCL04120_8A_1 both on port 'A', each listing the
+    other; FCL09220's own A/B/C ports are a different physical node, so
+    never compared against FCL04120's). Separately, confirmed rule #2: a
+    port declared under this node's 1st/2nd XMU is reserved outright — no
+    cell may use that port number even if otherwise legitimately
+    co-located with something (this is check_xmu_port_overlap()'s own
+    existing rule, folded in here so both halves of 'Riport should be
+    unique' show under one checklist result instead of two disconnected
+    ones).
+
+    Ports are scoped to a comma-split of 'Co-Located Technology Cell' —
+    a cell can be listed for more than one co-located partner (a 3-way
+    combine), and the check only requires EVERY other cell sharing that
+    exact port to appear somewhere in this cell's own list (not the
+    reverse — a real CIQ can leave the list one-directional on one side
+    of a pair)."""
+    def _cells(sheet, id_col, port_cols, co_col):
+        out = []
+        for row in _rows(ciq_wb, sheet):
+            cid = str(row.get(id_col) or "").strip()
+            if not cid or not cid.upper().startswith(str(node_id).upper()):
+                continue
+            ports = set()
+            for pc in port_cols:
+                v = str(row.get(pc) or "").strip()
+                if v and v.upper() not in ("", "N/A", "NA", "NOT USED"):
+                    ports.add(v.upper())
+            co = {c.strip().upper() for c in str(row.get(co_col) or "").split(",")
+                  if c.strip() and c.strip().upper() not in ("N/A", "NA")}
+            out.append({"cell": cid, "ports": ports, "co_located": co})
+        return out
+
+    cells = (_cells("eUtran Parameters", "EutranCellFDDId",
+                     ["DUS / XMU Port", "DUS / XMU Port Expansion"], "Co-Located Technology Cell")
+             + _cells("5G Info", "NRCellDU", ["Port 1", "Port 2", "Port 3", "Port 4"], "Co-Located Technology Cell"))
+    if not cells:
+        return []
+
+    port_to_cells = {}
+    for c in cells:
+        for p in c["ports"]:
+            port_to_cells.setdefault(p, []).append(c)
+
+    # Rule #2: ports this node's own 1st/2nd XMU declares are reserved
+    # outright, regardless of Co-Located Technology Cell.
+    xmu_ports = set()
+    for row in (r for r in (enb_row, gnb_row) if r is not None):
+        for which in ("1st", "2nd"):
+            if str(row.get(f"{which} XMU", "")).strip().upper() != "YES":
+                continue
+            for i in (1, 2, 3):
+                v = str(row.get(f"{which} XMU Port {i}") or "").strip()
+                if v and v.upper() not in ("", "N/A", "NA", "NOT USED"):
+                    xmu_ports.add(v.upper())
+
+    out = []
+    for port, group in port_to_cells.items():
+        if port in xmu_ports:
+            out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MISMATCH",
+                        "note": f"Port {port} is declared under this node's XMU but also assigned to: "
+                                f"{', '.join(sorted(c['cell'] for c in group))}"})
+            continue
+        if len(group) < 2:
+            out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MATCH", "note": "Unique."})
+            continue
+        bad = [c for c in group if not all(other["cell"] in c["co_located"]
+                                            for other in group if other is not c)]
+        if bad:
+            out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MISMATCH",
+                        "note": f"Port {port} reused by non-co-located cells: "
+                                f"{', '.join(sorted(c['cell'] for c in group))}"})
+        else:
+            out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MATCH",
+                        "note": f"Port {port} shared by confirmed co-located cells: "
+                                f"{', '.join(sorted(c['cell'] for c in group))}"})
+    return out
+
+
 def check_xmu_port_overlap(node_id, enb_row, gnb_row, ciq_wb):
     """Blueprint section 14 second table: Node id | 1st DU type | 1st XMU |
     1st XMU Port 1/2/3 | Port Uniqueness - do the XMU's own designated ports
