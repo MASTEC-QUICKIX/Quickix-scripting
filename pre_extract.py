@@ -986,11 +986,17 @@ def extract_bearer_oam_ipv6(text):
     bearer_ip_nr = _primary_address(bearer_key_nr)
     oam_ip = _primary_address(oam_key)
 
-    def _nexthop_address(router_name, suffix='1'):
-        pat = (rf'Router={re.escape(router_name)},RouteTableIPv6Static=1,Dst=1,'
-               rf'NextHop={re.escape(suffix)}\s*\n=+\naddress\s+(\S+)')
-        m = re.search(pat, text)
-        return m.group(1) if m else None
+  def _nexthop_address(router_name, suffix='1'):
+    if not text:
+        return None
+    pat = (
+        rf'Router={re.escape(router_name)},RouteTableIPv6Static=1,Dst=1,'
+        rf'NextHop={re.escape(suffix)}\s*\r?\n'
+        r'=+\r?\n'
+        r'address\s+(\S+)'
+    )
+    m = re.search(pat, text)
+    return m.group(1) if m else None
 
     bearer_router_ip_lte = _nexthop_address('LTE', '1') or _nexthop_address('NR', '1')
     bearer_router_ip_nr = _nexthop_address('LTE', 'NR') or _nexthop_address('NR', 'NR')
