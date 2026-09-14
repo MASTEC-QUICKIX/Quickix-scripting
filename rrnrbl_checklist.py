@@ -41,6 +41,16 @@ def _bearer_pre_value(pre_vals, pre_key, entry):
     key for OAM fields (no _lte/_nr split - confirmed shared) and for any
     entry with no tech (non-TMBB, single-technology log).
 
+    NO fallback to the flat key when tech IS set and its own value is
+    missing — confirmed real bug: a genuinely new Secondary (gNodeB not
+    added to this node's Pre config yet, only appearing in the Post/CIQ
+    design — confirmed real case, TNL01216/TNMN001216, log has no
+    InterfaceIPv6=NR at all) got the Primary's own LTE value silently
+    substituted in, since the flat key is `bearer_vlan_lte or
+    bearer_vlan_nr` and the old `or pre_vals.get(pre_key)` fallback
+    reached for it whenever the NR side was None. A missing tech-specific
+    value must surface as no-data, never as the other technology's value.
+
     A Secondary identity has NO OAM of its own — OAM belongs to the
     physical node as a whole and is reported once, under the Primary
     only (confirmed: EDP itself never publishes a separate OAM target
@@ -51,7 +61,7 @@ def _bearer_pre_value(pre_vals, pre_key, entry):
         return None
     tech = entry.get("tech")
     if tech and pre_key in ("bearer_vlan", "bearer_ip", "bearer_router_ip"):
-        return pre_vals.get(f"{pre_key}_{tech.lower()}") or pre_vals.get(pre_key)
+        return pre_vals.get(f"{pre_key}_{tech.lower()}")
     return pre_vals.get(pre_key)
 
 STATUS_META = {
