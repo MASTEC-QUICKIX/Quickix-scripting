@@ -173,8 +173,9 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
         if r.get('pending'):
             scope_lines.append(f"Port speed 1G to 10G conversion with MPST: {r['node']}.")
 
-    pr.build_report(out_pdf, site_details, pre_text, post_text, scope_lines, results,
-                     skipped_deleted=sorted(deleted_nodes))
+    if out_pdf:
+        pr.build_report(out_pdf, site_details, pre_text, post_text, scope_lines, results,
+                         skipped_deleted=sorted(deleted_nodes))
     return (out_pdf, results, site_details, ciq_wb, edp_rows, checked_nodes, rfds_pages,
             pre_text, post_text, scope_lines, sow)
 
