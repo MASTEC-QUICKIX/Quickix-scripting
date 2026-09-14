@@ -1055,8 +1055,16 @@ def build_pre_vs_edp_pivot_rows(node_logs_text, node_role_list, edp_rows, ciq_wb
         # from the CIQ first — same source _siad_port_size_pre_status uses,
         # so the pivot and that check can't disagree. node_role_list
         # entries carry only {node, role}, no board model.
-        board = du_type.get(nid) if ciq_wb is not None else None
-        _, pre_size = pe.extract_transport_port_mode(log_text, board) if (log_text and board) else (None, None)
+        # SIAD port size is a physical-node property, same as OAM — a
+        # Secondary identity has no port of its own (confirmed: it's the
+        # SAME physical transport port the Primary already reports),
+        # so it's suppressed here rather than repeating the Primary's
+        # own port size under the Secondary's row.
+        if entry.get("role") == "Secondary":
+            board, pre_size = None, None
+        else:
+            board = du_type.get(nid) if ciq_wb is not None else None
+            _, pre_size = pe.extract_transport_port_mode(log_text, board) if (log_text and board) else (None, None)
         row["siad_port_size_pre"] = pre_size or "—"
         row["siad_port_size_edp"] = _norm(edp_rec.get("SIAD_PORT_SIZE_BBU")) if edp_rec else "—"
 
