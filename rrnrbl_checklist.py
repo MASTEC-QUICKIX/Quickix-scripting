@@ -618,7 +618,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (64, "CIQ tabs checks", "eUtran Parameters Tab", "1)Compare Sectorid With Carrier Progression - sectorId / Carrier", "Radio", lambda: _agg(results.get("carrier_progression", []))),
         (65, "CIQ tabs checks", "eUtran Parameters Tab", "PhysicalLayerCellIdGroup and physicalLayerSubCellId should be unique - PCI", "Radio", lambda: _agg(results.get("pci_4g", []) + results.get("pci_5g", []))),
         (66, "CIQ tabs checks", "eUtran Parameters Tab", "Pre-existing node cellId must be same as ENM & N2E/NSB site CellId should be match with RFDS - Cellid", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
-        (67, "CIQ tabs checks", "eUtran Parameters Tab", "Riport should be unique", "Radio", lambda: _agg(results.get("xmu_port_overlap", []))),
+        (67, "CIQ tabs checks", "eUtran Parameters Tab", "Riport should be unique", "Radio", lambda: _agg(results.get("port_uniqueness", []))),
         (68, "CIQ tabs checks", "eUtran Parameters Tab", "tmaType / tmaConfiguration", "Radio", None),
         (69, "CIQ tabs checks", "eUtran Parameters Tab", "antenna model", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
         (70, "CIQ tabs checks", "eUtran Parameters Tab", " XMU Validation - Need to check with RFDS - XMU", "Radio", lambda: _xmu_vs_rfds_status(enb_rows_all, node_ids, rfds_pages)),
