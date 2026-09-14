@@ -607,6 +607,37 @@ def load_rfds_tables(rfds_bytes):
     return tables
 
 
+def _xmu_present_via_text(pages, node_id):
+    """Best-effort fallback for when extract_xmu_by_node's table extraction
+    has no entry for this node at all — confirmed real cause: the same
+    wrapped-CommonName table collapse documented on extract_common_name_
+    groups (2788253_RFDS-37756.pdf, FCL04120/FCON094120's row lands
+    entirely in column 0, so this node never gets a table row to read
+    'XMU' off of, even though it's genuinely on the page).
+
+    NOT as reliable as the table path — this is a bounded text window,
+    not a real per-row field read, so it's used only when the table
+    extraction found nothing for this node. Finds this node's LAST
+    Linked-Cells mention (equipment rows list all their cells before the
+    vendor/model/config line, so the last cell mention sits closest to
+    that line) and checks for 'XMU' in a window just after it — bounded
+    tightly (150 chars) rather than to the next record's own marker,
+    since there's no reliable single delimiter token confirmed to appear
+    in every RFDS export. Returns None (not False) if this node's own
+    cell prefix isn't found on the page at all — 'not present' should
+    fall through to the existing 'node not in RFDS' handling, not be
+    reported as 'no XMU'."""
+    text = find_pages_by_heading(pages, 'Non RF Inventory Details (Final)')
+    if not text:
+        return None
+    nid = str(node_id).strip().upper()
+    matches = list(re.finditer(re.escape(nid) + r'_\S+', text.upper()))
+    if not matches:
+        return None
+    window = text[matches[-1].end():matches[-1].end() + 150]
+    return 'XMU' in window.upper()
+
+
 def extract_xmu_by_node(rfds_bytes):
     """Node-specific XMU presence (rule #27) via pdfplumber table extraction,
     scoped to the 'Non RF Inventory Details' page(s) only (found via the
