@@ -760,10 +760,16 @@ def render_rrnrbl_checklist(rows):
         # too — only truly editable columns lose background per
         # streamlit/streamlit#10953); status is looked up from that same
         # cat_df, so the index always lines up even though every
-        # category's df restarts at 0.
+        # category's df restarts at 0. Foreground color is applied too
+        # (not just background) so status still reads at a glance even
+        # on the Tick column, which can't carry any color at all since
+        # it's the one editable cell.
         status = cat_df.loc[styler_row.name, "_status"]
-        _, bg = STATUS_COLORS.get(status, DEFAULT_COLOR)
-        return [f"background-color:{bg}"] * len(styler_row)
+        color, bg = STATUS_COLORS.get(status, DEFAULT_COLOR)
+        return [f"background-color:{bg};color:{color};font-weight:600"] * len(styler_row)
+
+    STATUS_ICON = {"match": "\u2713 ", "mismatch": "\u2717 ", "manual": "\u270e ",
+                   "unknown": "\u2013 ", "info": "\u2139 ", "na": "\u2013 "}
 
     new_overrides = dict(overrides)
     for cat_idx, (cat, group) in enumerate(groupby(rows, key=lambda r: r["cat"])):
@@ -772,7 +778,7 @@ def render_rrnrbl_checklist(rows):
                     unsafe_allow_html=True)
 
         cat_df = pd.DataFrame([{
-            "Check": r["item"],
+            "Check": STATUS_ICON.get(r["status"], "") + r["item"],
             "Tick": _checked_for(r),
             "Scope": r.get("tag", ""),
             "Remarks": _remarks_for(r),
