@@ -152,16 +152,22 @@ def _group_bad_by_node_reason(bad, real, reason_of):
     return "; ".join(parts[:6]) + more
 
 
-def _agg_cell_details(cells_results, radio_results):
+def _agg_cell_details(cells_results, cell_id_results, radio_results):
     """Row 31 ('CellDetails(Final) -- CellID / RCN / RRH'): same as _agg,
     except cells failing for the SAME reason on the SAME node are grouped
     into one summary line (see _group_bad_by_node_reason) instead of
-    listed cell-by-cell — covers BOTH 'not found in RFDS' (a newly-added
-    cell, not yet built) and 'RRU type mismatch' (RFDS doesn't confirm
-    CIQ's declared RRU). Applies to any band/sector, not just DOD_BWE
-    (N77 carrier '_3') — confirmed: the grouping is about the failure
-    reason itself repeating, not which band it happens to be."""
-    all_results = cells_results + radio_results
+    listed cell-by-cell — covers cell presence BOTH directions ('not
+    found in RFDS' / 'found in RFDS but not in CIQ'), Cell ID mismatch,
+    and RRU type mismatch — matching this row's own title. Applies to any
+    band/sector, not just DOD_BWE (N77 carrier '_3') — confirmed: the
+    grouping is about the failure reason itself repeating, not which band
+    it happens to be.
+
+    Reason is dispatched by each result's 'rule' tag (#6/#18 = cell
+    presence, #6/#24 = Cell ID, #6 = RRU), not by matching note text —
+    Cell ID's mismatch note embeds live Pre/CIQ/RFDS values with no fixed
+    string to match on, unlike the other two."""
+    all_results = cells_results + cell_id_results + radio_results
     if not all_results:
         return "unknown", "No data (check did not run for this site)."
     real = [r for r in all_results if r.get("status") not in (None, "SKIPPED")]
@@ -173,11 +179,12 @@ def _agg_cell_details(cells_results, radio_results):
         return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
 
     def _reason(r):
-        if r.get("note") == "Not found in RFDS.":
-            return "not found in RFDS"
-        if r.get("note") == "Found in RFDS but not in CIQ.":
-            return "found in RFDS but not in CIQ"
-        if r.get("note") == "RFDS does not confirm CIQ RRU type.":
+        rule = r.get("rule")
+        if rule == "#6/#18":
+            return "not found in RFDS" if r.get("note") == "Not found in RFDS." else "found in RFDS but not in CIQ"
+        if rule == "#6/#24":
+            return "Cell ID mismatch"
+        if rule == "#6":
             return "RRU type mismatch"
         return "mismatch"
 
@@ -700,7 +707,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (29, "RFDS Checks", None, "JobDetail", "Radio", None),
         (30, "RFDS Checks", None, "NonRFInventoryDetails(Final)", "Radio", None),
         (31, "RFDS Checks", None, "CellDetails(Final) -- CellID / RCN /RRH", "Radio",
-         lambda: _agg_cell_details(results.get("cells_vs_rfds", []), results.get("radio_type", []))),
+         lambda: _agg_cell_details(results.get("cells_vs_rfds", []), results.get("cell_id_vs_rfds", []), results.get("radio_type", []))),
         (32, "RFDS Checks", None, "AntennaPositionDetails -- Model / LinkedCells / Azimuth(Design)  / Total Postions", "Radio", None),
         (33, "RFDS Checks", None, "Plumbing Diagram -- TxRx / TMA / Radio - RET Controller / Total Postions", "Radio", None),
 
