@@ -1192,10 +1192,13 @@ def check_rf_params_4g(node_id, log_text, ciq_wb, has_pre_log, retuned_cells=Non
 
         planned = bool(mismatched) and cell in retuned_cells
         status = 'MATCH' if not mismatched else 'MISMATCH'
+        label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
         note = 'Confirmed.' if not mismatched else \
-            (f"Planned retune ({', '.join(mismatched)}) - verify." if planned else
-             f"Mismatch on {', '.join(mismatched)} - no SOW context, check Revision History.")
-        results.append({'rule': '#19', 'node': node_id, 'cell': cell, 'status': status, 'note': note, **fields})
+            (f"{where}: Planned retune ({', '.join(mismatched)}) - verify." if planned else
+             f"{where}: Mismatch on {', '.join(mismatched)} - no SOW context, check Revision History.")
+        results.append({'rule': '#19', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': status, 'note': note, **fields})
     return results
 
 
