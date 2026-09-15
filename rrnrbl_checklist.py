@@ -218,6 +218,27 @@ def _agg_rbb_5g(results_5g):
         return "mismatch"
 
     return "mismatch", _group_bad_by_node_reason(bad, real, _reason)
+
+
+def _agg_ssb_5g(ssb_results):
+    """Row 44 ('ssbFrequency/ssbOffset/ssbDuration'): same grouping
+    treatment as _agg_cell_id — 2+ cells on one node with a mismatch
+    summarize to one line naming just the band when EVERY sector of that
+    band failed, or '<band> (<sectors>)' when only some did; a lone
+    mismatch keeps its full Pre/CIQ field-level detail."""
+    if not ssb_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in ssb_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if not bad:
+        if real:
+            return "match", f"{len(real)} checked, no mismatch."
+        skipped_notes = {r.get("note") for r in ssb_results if r.get("note")}
+        return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+    return "mismatch", _group_bad_by_node_reason(bad, real, lambda r: "ssbFrequency/ssbOffset/ssbDuration mismatch")
+
+
+def _agg_cell_id(cell_id_results):
     """Cell ID checks (rows 40/59/66/74, all reading the same
     cell_id_vs_rfds results): same grouping treatment as
     _agg_cell_details — 2+ cells on one node with a Cell ID mismatch
@@ -748,7 +769,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (42, "CIQ tabs checks", "5g info", "RBB Type vs no.ofrx and tx from ENM", "Radio",
          lambda: _agg_rbb_5g([r for r in results.get("sector_swap", []) if r.get("kind") == "5g"])),
         (43, "CIQ tabs checks", "5g info", "DSS check", "NR/Radio", lambda: _agg(results.get("dss", []))),
-        (44, "CIQ tabs checks", "5g info", "ssbFrequency /ssbOffset/ ssbDuration ", "NR/Radio", lambda: _agg(results.get("params_5g", []))),
+        (44, "CIQ tabs checks", "5g info", "ssbFrequency /ssbOffset/ ssbDuration ", "NR/Radio", lambda: _agg_ssb_5g(results.get("ssb_5g", []))),
         (45, "CIQ tabs checks", "5g info", "NSA/SA", "NR/Radio", lambda: _agg(results.get("nr_tac", []))),
         (46, "CIQ tabs checks", "5g info", "Make sure  BBU Type should match with RFDS and CIQ - BBU Type", "NR/Radio", lambda: _agg(board_type)),
         (47, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU/cellLocalId/RRU Type/ BeamDirection (Azimuth) /Antenna Type /Electrical Tilt must same as RFDS ", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
