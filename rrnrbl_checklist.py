@@ -627,32 +627,47 @@ def _mme_region_status(ciq_wb):
 
 
 def _nr_sa_tac_status(ciq_wb):
+    """NR_SA tab declares, per NODE, the exact nRTAC value expected if that
+    node is SA-converted ('Node Name' + 'nrTAC' columns, confirmed real
+    CIQ structure). A node listed there must show that EXACT value across
+    its 5G Info cells; a node NOT listed there must show 0 (NSA)."""
     has_nr_sa = "NR_SA" in ciq_wb.sheetnames
     if not has_nr_sa:
         return "na", "No NR_SA tab in this CIQ — SA-carrier TAC rule does not apply."
     if "5G Info" not in ciq_wb.sheetnames:
         return "unknown", "NR_SA tab present but no 5G Info sheet found."
-    rows = cer.sheet_rows_as_dicts(ciq_wb["5G Info"])
-    bad = []
-    checked = 0
-    for r in rows:
-        nsa_sa = _norm(r.get("NSA/SA")).upper()
-        tac = _norm(r.get("nRTAC"))
-        cell = _norm(r.get("NRCellDU"))
-        if not nsa_sa or not cell:
+
+    sa_tac_by_node = {_norm(r.get("Node Name")).upper(): _norm(r.get("nrTAC"))
+                      for r in cer.sheet_rows_as_dicts(ciq_wb["NR_SA"]) if _norm(r.get("Node Name"))}
+
+    node_tacs = {}
+    for r in cer.sheet_rows_as_dicts(ciq_wb["5G Info"]):
+        node = _norm(r.get("gNB Name")).upper()
+        if not node:
             continue
-        checked += 1
-        is_sa = "SA" in nsa_sa and "NSA" not in nsa_sa
-        is_nsa = "NSA" in nsa_sa
-        if is_sa and len(tac) != 7:
-            bad.append(f"{cell}: NSA/SA=SA but nRTAC='{tac}' (expected 7 digits)")
-        elif is_nsa and tac not in ("", "0"):
-            bad.append(f"{cell}: NSA/SA=NSA but nRTAC='{tac}' (expected blank/0)")
-    if not checked:
-        return "unknown", "NR_SA tab present but no NSA/SA values read from 5G Info."
+        node_tacs.setdefault(node, set()).add(_norm(r.get("nRTAC")))
+    if not node_tacs:
+        return "unknown", "NR_SA tab present but no nRTAC values read from 5G Info."
+
+    bad, sa_lines, nsa_nodes = [], [], []
+    for node, tacs in node_tacs.items():
+        expected = sa_tac_by_node.get(node)
+        if expected is not None:
+            if tacs != {expected}:
+                bad.append(f"{node}: nRTAC {sorted(tacs)} does not match NR_SA value '{expected}'")
+            else:
+                sa_lines.append(f"NR TAC: {expected}: {node}")
+        elif tacs != {"0"}:
+            bad.append(f"{node}: nRTAC {sorted(tacs)} expected 0 (not in NR_SA tab)")
+        else:
+            nsa_nodes.append(node)
+
     if bad:
         return "mismatch", "; ".join(bad[:6])
-    return "match", f"{checked} 5G Info row(s): nRTAC digit-count matches NSA/SA."
+    lines = list(sa_lines)
+    if nsa_nodes:
+        lines.append(f"NR TAC: 0: {', '.join(sorted(nsa_nodes))}")
+    return "match", " | ".join(lines) if lines else "No 5G nodes to check."
 
 
 def _fa_code_status(site_details, ciq_wb):
