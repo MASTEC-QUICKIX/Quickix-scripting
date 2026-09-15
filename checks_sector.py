@@ -749,6 +749,38 @@ def check_rfds_nrcelldu(node_id, ciq_wb, rfds_pages):
     return results
 
 
+def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name):
+    """5G Info 'Antenna Type' vs RFDS 'RF Inventory Details (Final)' antenna
+    model — confirmed exact string match on real data (both read
+    'NNH4-85B-R6' for the same cell). AIR-series radios (integrated
+    antenna, no separate ANTENNA row in RFDS at all — confirmed via
+    extract_rf_inventory_antennas's own docstring and real data: every
+    RBBAIR/AIR-6472 cell checked simply has no entry) are skipped rather
+    than flagged missing — that's expected, not a gap. A cell missing
+    from RFDS for any OTHER reason is also skipped here (check_cells_vs_
+    rfds already owns that finding) rather than duplicated as a second
+    'missing' result."""
+    if rfds_pages is None:
+        return [{'rule': '#47', 'node': node_id, 'cell': None, 'status': 'SKIPPED', 'note': 'No RFDS provided.'}]
+    import rfds_extract as rf
+    antennas = rf.extract_rf_inventory_antennas(rfds_pages)
+    results = []
+    for row in _rows(ciq_wb, '5G Info'):
+        cell = row.get('NRCellDU')
+        if not (cell and g_name and str(cell).startswith(g_name)):
+            continue
+        rfds_ant = antennas.get(cell, {}).get('model')
+        if not rfds_ant:
+            continue
+        ciq_ant = str(row.get('Antenna Type', '')).strip()
+        label, sector = band_label(cell)
+        match = ciq_ant == rfds_ant
+        results.append({'rule': '#47', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': 'MATCH' if match else 'MISMATCH',
+                         'note': 'Match.' if match else f'CIQ Antenna Type={ciq_ant} vs RFDS={rfds_ant}.'})
+    return results
+
+
 def check_nrcelldu_nrcellcu_match(node_id, ciq_wb, g_name):
     """CIQ-internal consistency check (5G Info tab, no Pre/RFDS involved):
     NRCellDU and NRCellCU must be the same value for every cell — confirmed
