@@ -126,7 +126,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
                     gnb_row = r
                     break
         results['xmu_port_overlap'] += cs.check_xmu_port_overlap(node_id, enb_row, gnb_row, ciq_wb)
-        results['port_uniqueness'] += cs.check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb)
+        results['port_uniqueness'] += cs.check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name, g_name)
         results['nbiot'] += cs.check_nbiot(node_id, log_text, ciq_wb)
 
         nr_tac_rows = cs.check_nr_tac(node_id, log_text, ciq_wb, has_pre, False, g_name, node_logs, moved_map)
