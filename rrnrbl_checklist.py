@@ -100,6 +100,80 @@ def _agg(results_list, note_fields=("node", "cell", "note")):
     return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
 
 
+def _group_bad_by_node_reason(bad, reason_of):
+    """Shared core for the 'not found in RFDS' / RRU / Cell ID grouping:
+    when 2+ cells on the SAME node fail for the SAME reason, produce one
+    summary line (count + involved band labels via band_labels.band_label)
+    instead of listing each cell's full detail. A LONE mismatch on a node
+    keeps its full per-cell detail (Pre/CIQ/RFDS values, etc.) — a single
+    discrepancy is worth seeing in full, not compressed. reason_of(r)
+    returns the grouping key's human label (e.g. 'not found in RFDS')."""
+    by_node_reason = {}
+    for r in bad:
+        key = (r.get("node"), reason_of(r))
+        by_node_reason.setdefault(key, []).append(r)
+
+    parts = []
+    for (node, reason), entries in by_node_reason.items():
+        if len(entries) == 1:
+            r = entries[0]
+            bits = [str(r.get(f)) for f in ("node", "cell", "note") if r.get(f)]
+            parts.append(": ".join(bits) if bits else str(r))
+        else:
+            labels = sorted({r.get("label") or "unknown band" for r in entries})
+            parts.append(f"{node}: {len(entries)} sector(s) with {reason} ({', '.join(labels)}).")
+    more = f" (+{len(parts)-6} more)" if len(parts) > 6 else ""
+    return "; ".join(parts[:6]) + more
+
+
+def _agg_cell_details(cells_results, radio_results):
+    """Row 31 ('CellDetails(Final) -- CellID / RCN / RRH'): same as _agg,
+    except cells failing for the SAME reason on the SAME node are grouped
+    into one summary line (see _group_bad_by_node_reason) instead of
+    listed cell-by-cell — covers BOTH 'not found in RFDS' (a newly-added
+    cell, not yet built) and 'RRU type mismatch' (RFDS doesn't confirm
+    CIQ's declared RRU). Applies to any band/sector, not just DOD_BWE
+    (N77 carrier '_3') — confirmed: the grouping is about the failure
+    reason itself repeating, not which band it happens to be."""
+    all_results = cells_results + radio_results
+    if not all_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in all_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if not bad:
+        if real:
+            return "match", f"{len(real)} checked, no mismatch."
+        skipped_notes = {r.get("note") for r in all_results if r.get("note")}
+        return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+
+    def _reason(r):
+        if r.get("note") == "Not found in RFDS.":
+            return "not found in RFDS"
+        if r.get("note") == "RFDS does not confirm CIQ RRU type.":
+            return "RRU type mismatch"
+        return "mismatch"
+
+    return "mismatch", _group_bad_by_node_reason(bad, _reason)
+
+
+def _agg_cell_id(cell_id_results):
+    """Cell ID checks (rows 40/59/66/74, all reading the same
+    cell_id_vs_rfds results): same grouping treatment as
+    _agg_cell_details — 2+ cells on one node with a Cell ID mismatch
+    summarize to one line with the involved band labels; a lone mismatch
+    keeps its full Pre/CIQ/RFDS detail."""
+    if not cell_id_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in cell_id_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if not bad:
+        if real:
+            return "match", f"{len(real)} checked, no mismatch."
+        skipped_notes = {r.get("note") for r in cell_id_results if r.get("note")}
+        return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+    return "mismatch", _group_bad_by_node_reason(bad, lambda r: "Cell ID mismatch")
+
+
 def _worst_status(statuses):
     """Roll several (status, note) verdicts into one, worst-first:
     mismatch > manual > unknown > match. Notes from every contributing
@@ -597,7 +671,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (29, "RFDS Checks", None, "JobDetail", "Radio", None),
         (30, "RFDS Checks", None, "NonRFInventoryDetails(Final)", "Radio", None),
         (31, "RFDS Checks", None, "CellDetails(Final) -- CellID / RCN /RRH", "Radio",
-         lambda: _agg(results.get("cells_vs_rfds", []) + results.get("radio_type", []))),
+         lambda: _agg_cell_details(results.get("cells_vs_rfds", []), results.get("radio_type", []))),
         (32, "RFDS Checks", None, "AntennaPositionDetails -- Model / LinkedCells / Azimuth(Design)  / Total Postions", "Radio", None),
         (33, "RFDS Checks", None, "Plumbing Diagram -- TxRx / TMA / Radio - RET Controller / Total Postions", "Radio", None),
 
@@ -607,7 +681,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (38, "CIQ tabs checks", "Mixed Mode Info Tab", "Make sure Primary & secondary node is matching with RFDS-Non RF Inventory Details (Final)", "Radio", lambda: _agg(results.get("primary_secondary", []))),
 
         (39, "CIQ tabs checks", "5g info", "NRCellDU/ NRCellCU  ENM vs CIQ ", "NR/Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
-        (40, "CIQ tabs checks", "5g info", "nRTAC/ cellLocalId ENM Vs CIQ", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
+        (40, "CIQ tabs checks", "5g info", "nRTAC/ cellLocalId ENM Vs CIQ", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
         (41, "CIQ tabs checks", "5g info", "arfcnDL/ arfcnUL and bSChannelBwDL/ bSChannelBwDL\nENM Vs CIQ", "NR/Radio", lambda: _agg(results.get("params_5g", []))),
         (42, "CIQ tabs checks", "5g info", "RBB Type vs no.ofrx and tx from ENM", "Radio", lambda: _agg(results.get("params_5g", []))),
         (43, "CIQ tabs checks", "5g info", "DSS check", "NR/Radio", lambda: _agg(results.get("dss", []))),
@@ -629,14 +703,14 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
 
         (57, "CIQ tabs checks", "eUtran Parameters Tab", "earfcnDl/ dlChannelBandwidth ENM vs CIQ", "NR/Radio", lambda: _agg(results.get("params_4g", []))),
         (58, "CIQ tabs checks", "eUtran Parameters Tab", "RBB type/ noOfTx/noOfRx\nIdentify  ISDLONLY carrier", "NR/Radio", lambda: _agg(results.get("params_4g", []))),
-        (59, "CIQ tabs checks", "eUtran Parameters Tab", "cellId ENM vs CIQ \nIdentify cellid change SOW", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
+        (59, "CIQ tabs checks", "eUtran Parameters Tab", "cellId ENM vs CIQ \nIdentify cellid change SOW", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
         (60, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection should match with RFDS - EutranCell", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
         (61, "CIQ tabs checks", "eUtran Parameters Tab", "electricalAntennaTilt should be integer value not character - Tilt", "Radio", lambda: _agg(results.get("params_4g", []))),
         (62, "CIQ tabs checks", "eUtran Parameters Tab", "configuredOutputPower depends on RRU type (Ericsson 4490, 4890, or 4472 radios (e.g., NSB or Allagi projects, New Carrier Adds, Radio Swaps) will be Configured with maximum allowed power of 160W.) - configuredOutputPower", "Radio", None),
         (63, "CIQ tabs checks", "eUtran Parameters Tab", "TxRx / RBB Type Need to be checked with - Single / Double RILink - RRU type & RBB type", "Radio", lambda: _agg(results.get("params_4g", []))),
         (64, "CIQ tabs checks", "eUtran Parameters Tab", "1)Compare Sectorid With Carrier Progression - sectorId / Carrier", "Radio", lambda: _agg(results.get("carrier_progression", []))),
         (65, "CIQ tabs checks", "eUtran Parameters Tab", "PhysicalLayerCellIdGroup and physicalLayerSubCellId should be unique - PCI", "Radio", lambda: _agg(results.get("pci_4g", []) + results.get("pci_5g", []))),
-        (66, "CIQ tabs checks", "eUtran Parameters Tab", "Pre-existing node cellId must be same as ENM & N2E/NSB site CellId should be match with RFDS - Cellid", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
+        (66, "CIQ tabs checks", "eUtran Parameters Tab", "Pre-existing node cellId must be same as ENM & N2E/NSB site CellId should be match with RFDS - Cellid", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
         (67, "CIQ tabs checks", "eUtran Parameters Tab", "Riport should be unique", "Radio", lambda: _agg(results.get("port_uniqueness", []))),
         (68, "CIQ tabs checks", "eUtran Parameters Tab", "tmaType / tmaConfiguration", "Radio", None),
         (69, "CIQ tabs checks", "eUtran Parameters Tab", "antenna model", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
@@ -645,7 +719,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
 
         (72, "CIQ tabs checks", "Losses and delay", "Check for Losses delay matches to FDD and TxRx", "Radio", lambda: _agg(results.get("losses_vs_antenna", []))),
         (73, "CIQ tabs checks", "Antenna Information", "AntennaUnit/AntennaSubunit should unique for the band wise", "Radio", lambda: _agg(results.get("antenna", []))),
-        (74, "CIQ tabs checks", "Sector Movement / Deletion sheet", "All source cells cellid/SSB/ BW matching with ENM and all target cells with eUtan tab", "NR/Radio", lambda: _agg(results.get("cell_id_vs_rfds", []))),
+        (74, "CIQ tabs checks", "Sector Movement / Deletion sheet", "All source cells cellid/SSB/ BW matching with ENM and all target cells with eUtan tab", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
 
         # Rows 75-76 are new in the updated template (they pushed the old
         # "Pre checks" block from 75-79 down to 77-81). Both are EDP/ENM IP
