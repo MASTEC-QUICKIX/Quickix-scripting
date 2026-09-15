@@ -397,9 +397,13 @@ def check_mmwave_rach(node_id, ciq_wb):
 
 def check_sef_fru(node_id, ciq_wb):
     """Rule #9 - SEF/FRU sharing vs uniqueness, radio-type dependent:
-      - 6472 present + both CBAND and DOD (or DOD_BWE) cells -> SEF/FRU
-        SHARING is expected/correct (sharing radio by default) — not
-        required to be shared, just allowed to be, so always INFO.
+      - 6472 (sharing radio) -> SEF must be the SAME (shared) across
+        whichever of CBAND/DOD/DOD_BWE sectors use that radio, grouped by
+        sector letter (a 6472 serves one sector across multiple bands,
+        never across different sectors) - a DIFFERING SEF within one
+        sector's 6472 cells is the bug this catches, not a passing case.
+        An earlier version had this backwards (always INFO, never
+        flagged a differing SEF).
       - 6419/6449 (single-band radios) -> BOTH SectorEquipmentFunction
         AND RRU FieldReplaceableUnit must be unique per CBAND|DOD cell.
         An earlier version only checked SEF, never FRU, missing a real
@@ -408,6 +412,17 @@ def check_sef_fru(node_id, ciq_wb):
     fiveg_rows = _rows(ciq_wb, '5G Info')
     cband_dod_rows = [r for r in fiveg_rows if r.get('NRCellDU') and
                        (is_cband_cell(r['NRCellDU']) or is_dod_cell(r['NRCellDU']))]
+
+    # 6472: SEF is expected to be the SAME across whichever of CBAND/DOD/
+    # DOD_BWE sectors share that physical radio — grouped by SECTOR letter
+    # (Alpha/Beta/Gamma...) since a 6472 radio serves one sector across
+    # multiple bands, not across different sectors. A differing SEF within
+    # the same sector's 6472 cells is the actual bug this rule catches.
+    sef_by_sector_6472 = {}
+    for row in cband_dod_rows:
+        if '6472' in str(row.get('RRU Type', '')):
+            _, sector = band_label(row.get('NRCellDU'))
+            sef_by_sector_6472.setdefault(sector, set()).add(row.get('SectorEquipmentFunction'))
 
     results = []
     # group by RRU Type to determine which radio family governs each cell
@@ -418,10 +433,14 @@ def check_sef_fru(node_id, ciq_wb):
         fru = row.get('RRU FieldReplaceableUnit')
 
         if '6472' in rru_type:
-            # sharing expected - just record for cross-cell dup check below, not an error by itself
-            results.append({'rule': '#9', 'node': node_id, 'cell': cell, 'status': 'INFO',
+            _, sector = band_label(cell)
+            shared = len(sef_by_sector_6472.get(sector, set())) <= 1
+            results.append({'rule': '#9', 'node': node_id, 'cell': cell,
+                             'status': 'MATCH' if shared else 'MISMATCH',
                              'rru_type': rru_type, 'sef': sef, 'fru': fru,
-                             'note': '6472 radio - CBAND/DOD/DOD_BWE sharing this radio is expected.'})
+                             'note': '6472 radio - SEF correctly shared across CBAND/DOD/DOD_BWE on this sector.'
+                                     if shared else
+                                     f"6472 radio - SEF should be shared across CBAND/DOD/DOD_BWE on this sector but differs (SEF='{sef}')."})
         elif any(m in rru_type for m in ('6419', '6449')):
             dup_sef = any(other is not row and other.get('SectorEquipmentFunction') == sef
                           for other in cband_dod_rows if is_cband_cell(other.get('NRCellDU')) or is_dod_cell(other.get('NRCellDU')))
