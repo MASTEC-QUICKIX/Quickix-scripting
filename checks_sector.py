@@ -1934,7 +1934,7 @@ def check_losses_vs_antenna_sectors(node_id, ciq_wb, e_name=None, g_name=None):
             else:
                 out.append({'rule': None, 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
                             'status': 'MISMATCH',
-                            'note': f'{where}: non-AIR CBAND/DOD/DOD_BWE cell missing from Losses and Delays.'})
+                            'note': f'{where} missing in the Losses and Delays tab.'})
 
     if not out:
         out.append({'rule': None, 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
