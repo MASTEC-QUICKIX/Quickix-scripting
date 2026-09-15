@@ -1052,10 +1052,11 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
         rfds_rcn = cell_details[cell]['rcn']
         match = pre_id in ('NA',) or pre_id == ciq_id  # Pre vs CIQ is the pass/fail; RFDS shown for reference only
         label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
         results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
                          'pre': pre_id, 'ciq': ciq_id, 'rfds_rcn': rfds_rcn,
                          'status': 'MATCH' if match else 'MISMATCH',
-                         'note': f'Match. (RFDS RCN={rfds_rcn})' if match else f'Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
+                         'note': f'Match. (RFDS RCN={rfds_rcn})' if match else f'{where}: Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
 
     parsed = __import__('log_parser').parse_log(log_text) if log_text else []
     pre_5g = pe.extract_5g_sector_params(parsed, log_text) if log_text else {}
@@ -1072,10 +1073,11 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
         rfds_rcn = cell_details[cell]['rcn']
         match = pre_id in ('NA',) or pre_id == ciq_id  # Pre vs CIQ is the pass/fail; RFDS shown for reference only
         label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
         results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
                          'pre': pre_id, 'ciq': ciq_id, 'rfds_rcn': rfds_rcn,
                          'status': 'MATCH' if match else 'MISMATCH',
-                         'note': f'Match. (RFDS RCN={rfds_rcn})' if match else f'Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
+                         'note': f'Match. (RFDS RCN={rfds_rcn})' if match else f'{where}: Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
     return results
 
 
