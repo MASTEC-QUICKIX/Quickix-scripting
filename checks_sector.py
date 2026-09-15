@@ -1372,8 +1372,13 @@ def check_antenna_uniqueness(node_id, ciq_wb):
 
 def check_dss_pre_existing(node_id, log_text, ciq_wb):
     """Blueprint #35 'pre existing DSS'. Warns when a Pre cell already has
-    DSS active (non-zero essScLocalId AND essScPairId on its SectorCarrier),
-    naming the LTE band it's active on.
+    DSS active (non-zero essScLocalId AND essScPairId on its SectorCarrier
+    or NRSectorCarrier), naming the band(s) it's active on.
+
+    One combined line per node ('Pre existing DSS on: <LTE bands> | <5G
+    bands>'), not one INFO row per cell — extract_dss_status() covers both
+    SectorCarrier (LTE) and NRSectorCarrier (5G) already, so an active node
+    can have bands on both sides at once.
 
     This was previously listed in run_validation.py's unavailable_notes as
     'no DSS signal found in Pre kget-all logs'. That note was wrong: the
@@ -1388,13 +1393,12 @@ def check_dss_pre_existing(node_id, log_text, ciq_wb):
     active = sorted(c for c, on in dss.items() if on)
     if not active:
         return [{'rule': '#35', 'node': node_id, 'cell': '-', 'status': 'MATCH',
-                 'note': 'No pre-existing DSS on this node.'}]
-    out = []
-    for cell in active:
-        band, _ = band_label(cell)
-        out.append({'rule': '#35', 'node': node_id, 'cell': cell, 'status': 'INFO',
-                    'note': f'Pre existing DSS Activated on the {band or "unknown band"}'})
-    return out
+                 'note': 'No pre existing DSS.'}]
+    lte_bands = sorted({b for b in (band_label(c)[0] for c in active if not is_5g_cell(c)) if b})
+    nr_bands = sorted({b for b in (band_label(c)[0] for c in active if is_5g_cell(c)) if b})
+    sides = [', '.join(lte_bands) if lte_bands else '-', ', '.join(nr_bands) if nr_bands else '-']
+    return [{'rule': '#35', 'node': node_id, 'cell': '-', 'status': 'INFO',
+             'note': f"Pre existing DSS on: {sides[0]} | {sides[1]}"}]
 
 
 def check_sector_id_4890(node_id, ciq_wb, e_name=None):
