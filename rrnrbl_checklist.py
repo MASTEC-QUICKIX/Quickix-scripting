@@ -357,16 +357,25 @@ def _sw_consistency_status(sw_version_results):
 def _sw_status_v2(sw_version_results):
     """Confirmed to do BOTH signals, not just one: (1) every node that has a
     Pre log actually shows a detected SW version, AND (2) every detected
-    version agrees across nodes. Either failing is a mismatch."""
+    version agrees across nodes. Either failing is a mismatch.
+
+    SKIPPED entries (no Pre log at all for this node — confirmed real case:
+    a genuinely new node being added in this build, e.g. Pre has 2 nodes
+    and CIQ adds a 3rd) are excluded from 'missing' entirely — that node
+    was never expected to have a Pre log, so its absence isn't a real
+    version-mismatch finding. Only a node that HAD a log but still
+    couldn't yield a version (status not SKIPPED, sw_version still None/
+    'NOT FOUND') counts as missing."""
     if not sw_version_results:
         return "unknown", "No Pre kget-all logs loaded."
-    missing = [r.get("node") for r in sw_version_results if r.get("sw_version") in (None, "NOT FOUND")]
-    versions = {r.get("sw_version") for r in sw_version_results if r.get("sw_version") not in (None, "NOT FOUND")}
+    checked = [r for r in sw_version_results if r.get("status") != "SKIPPED"]
+    missing = [r.get("node") for r in checked if r.get("sw_version") in (None, "NOT FOUND")]
+    versions = {r.get("sw_version") for r in checked if r.get("sw_version") not in (None, "NOT FOUND")}
     bad = []
     if missing:
         bad.append(f"No SW version detected for: {', '.join(missing)}")
     if len(versions) > 1:
-        detail = "; ".join(f"{r.get('node')}={r.get('sw_version')}" for r in sw_version_results if r.get("sw_version") not in (None, "NOT FOUND"))
+        detail = "; ".join(f"{r.get('node')}={r.get('sw_version')}" for r in checked if r.get("sw_version") not in (None, "NOT FOUND"))
         bad.append(f"Mixed SW versions across Pre nodes: {detail}")
     if bad:
         return "mismatch", " | ".join(bad)
