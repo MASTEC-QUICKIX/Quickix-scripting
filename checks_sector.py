@@ -730,6 +730,26 @@ def check_rfds_nrcelldu(node_id, ciq_wb, rfds_pages):
     return results
 
 
+def check_nrcelldu_nrcellcu_match(node_id, ciq_wb, g_name):
+    """CIQ-internal consistency check (5G Info tab, no Pre/RFDS involved):
+    NRCellDU and NRCellCU must be the same value for every cell — confirmed
+    against real CIQ data (always identical in practice on every real
+    sample checked); a mismatch would be a genuine CIQ data-entry error,
+    not a discrepancy against some other source."""
+    results = []
+    for row in _rows(ciq_wb, '5G Info'):
+        du = str(row.get('NRCellDU') or '').strip()
+        cu = str(row.get('NRCellCU') or '').strip()
+        if not du or not g_name or not du.startswith(g_name):
+            continue
+        label, sector = band_label(du)
+        match = du == cu
+        results.append({'rule': '#39', 'node': node_id, 'cell': du, 'label': label, 'sector': sector,
+                         'status': 'MATCH' if match else 'MISMATCH',
+                         'note': 'Match.' if match else f'NRCellDU={du} vs NRCellCU={cu or "(blank)"}.'})
+    return results
+
+
 def check_cells_vs_rfds(node_id, ciq_wb, rfds_pages, e_name, g_name):
     """Blueprint section 8 'Cells verification' (#6, #18) - every CIQ cell
     (LTE + 5G combined) checked for presence in RFDS. CIQ | RFDS | Match.
