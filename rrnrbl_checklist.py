@@ -541,6 +541,21 @@ def _sw_status_v2(sw_version_results):
     return "unknown", "No SW version captured from any Pre kget-all log."
 
 
+def _nsa_sa_status(nr_tac_results):
+    """Row 45 ('NSA/SA'): a per-SITE summary, not per-cell pass/fail — a
+    node counts as SA in Pre if ANY of its cells report a 7-digit Pre
+    nRTAC (check_nr_tac's own SA signal). Distinct from row 48 (Pre vs
+    CIQ nRTAC value agreement), which still uses the per-cell result."""
+    if not nr_tac_results:
+        return "unknown", "No data (check did not run for this site)."
+    sa_nodes = sorted({r.get("node") for r in nr_tac_results
+                        if r.get("pre_nrtac") and str(r.get("pre_nrtac")).isdigit()
+                        and len(str(r.get("pre_nrtac"))) == 7})
+    if sa_nodes:
+        return "info", f"{', '.join(sa_nodes)} {'is' if len(sa_nodes) == 1 else 'are'} SA config in pre."
+    return "match", "All Nodes are NSA in pre."
+
+
 def _mme_region_status(ciq_wb):
     """N2E-ness is a SITE-level fact, not per-node: presence of any real cell
     row in the CIQ's Nokia_Info tab (the source-Nokia cell being migrated
@@ -770,7 +785,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
          lambda: _agg_rbb_5g([r for r in results.get("sector_swap", []) if r.get("kind") == "5g"])),
         (43, "CIQ tabs checks", "5g info", "DSS check", "NR/Radio", lambda: _agg(results.get("dss", []))),
         (44, "CIQ tabs checks", "5g info", "ssbFrequency /ssbOffset/ ssbDuration ", "NR/Radio", lambda: _agg_ssb_5g(results.get("ssb_5g", []))),
-        (45, "CIQ tabs checks", "5g info", "NSA/SA", "NR/Radio", lambda: _agg(results.get("nr_tac", []))),
+        (45, "CIQ tabs checks", "5g info", "NSA/SA", "NR/Radio", lambda: _nsa_sa_status(results.get("nr_tac", []))),
         (46, "CIQ tabs checks", "5g info", "Make sure  BBU Type should match with RFDS and CIQ - BBU Type", "NR/Radio", lambda: _agg(board_type)),
         (47, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU/cellLocalId/RRU Type/ BeamDirection (Azimuth) /Antenna Type /Electrical Tilt must same as RFDS ", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
         (48, "CIQ tabs checks", "5g info", "NR TAC - Existing sectors - ENM", "NR/Radio", lambda: _agg(results.get("nr_tac", []))),
