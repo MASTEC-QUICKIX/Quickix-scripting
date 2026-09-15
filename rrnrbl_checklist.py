@@ -218,6 +218,34 @@ def _agg_row47(cells_results, cell_id_results, radio_results, nrcelldu_results, 
     return "manual", f"{base} {manual_note}"
 
 
+def _agg_rbb_tx_isdlonly_4g(results_4g):
+    """Row 58 ('RBB type/noOfTx/noOfRx / Identify ISDLONLY carrier'): same
+    grouping treatment as the 5G rows — whole-band collapses to just the
+    band name, partial names the specific sectors; a lone mismatch keeps
+    its full detail."""
+    if not results_4g:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in results_4g if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if not bad:
+        if real:
+            return "match", f"{len(real)} checked, no mismatch."
+        skipped_notes = {r.get("note") for r in results_4g if r.get("note")}
+        return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+
+    def _reason(r):
+        note = r.get("note") or ""
+        if "does not match the expected RBB" in note:
+            return "unparseable RBB type"
+        if "ISDLONLY" in note:
+            return "ISDLONLY mismatch"
+        if "implies TX/RX" in note:
+            return "RBB/TX-RX mismatch"
+        return "mismatch"
+
+    return "mismatch", _group_bad_by_node_reason(bad, real, _reason)
+
+
 def _agg_params_4g(params_results):
     """Row 57 ('earfcnDl/dlChannelBandwidth ENM vs CIQ' — actually covers
     all four LTE fields check_rf_params_4g checks: earfcnDl/earfcnUl/
@@ -906,7 +934,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (56, "CIQ tabs checks", "eNB Info", "TAC Value", "NR/Radio", lambda: _agg(results.get("tac", []))),
 
         (57, "CIQ tabs checks", "eUtran Parameters Tab", "earfcnDl/ dlChannelBandwidth ENM vs CIQ", "NR/Radio", lambda: _agg_params_4g(results.get("params_4g", []))),
-        (58, "CIQ tabs checks", "eUtran Parameters Tab", "RBB type/ noOfTx/noOfRx\nIdentify  ISDLONLY carrier", "NR/Radio", lambda: _agg(results.get("params_4g", []))),
+        (58, "CIQ tabs checks", "eUtran Parameters Tab", "RBB type/ noOfTx/noOfRx\nIdentify  ISDLONLY carrier", "NR/Radio", lambda: _agg_rbb_tx_isdlonly_4g(results.get("rbb_tx_isdlonly_4g", []))),
         (59, "CIQ tabs checks", "eUtran Parameters Tab", "cellId ENM vs CIQ \nIdentify cellid change SOW", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
         (60, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection should match with RFDS - EutranCell", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
         (61, "CIQ tabs checks", "eUtran Parameters Tab", "electricalAntennaTilt should be integer value not character - Tilt", "Radio", lambda: _agg(results.get("params_4g", []))),
