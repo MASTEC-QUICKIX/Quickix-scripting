@@ -56,7 +56,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
 
     results = {k: [] for k in (
         'sw_version', 'identity', 'primary_secondary', 'board_type', 'xmu',
-        'cells_vs_rfds', 'cell_id_vs_rfds', 'nrcelldu_nrcellcu', 'antenna_type_rfds', 'gnb_identity', 'gnb_du_type', 'enb_identity',
+        'cells_vs_rfds', 'cell_id_vs_rfds', 'cellid_uniqueness_4g', 'nrcelldu_nrcellcu', 'antenna_type_rfds', 'gnb_identity', 'gnb_du_type', 'enb_identity',
         'params_4g', 'rbb_tx_isdlonly_4g', 'rilink_vs_rbb_4g', 'electrical_tilt_type', 'params_5g', 'arfcn_bw_5g', 'ssb_5g',
         'pci_4g', 'pci_5g', 'radio_type', 'sector_swap', 'radio_sharing',
         'port_uniqueness', 'xmu_port_overlap', 'antenna', 'nbiot', 'nr_tac', 'tac', 'sef_fru',
@@ -101,6 +101,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
         results['enb_identity'] += cs.check_enb_identity_consistency(node_id, ciq_wb, e_name)
         results['gnb_du_type'] += cs.check_gnb_du_type_vs_5g_bbu_type(node_id, ciq_wb, g_name, e_name)
         results['cell_id_vs_rfds'] += cs.check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name, node_logs, moved_map)
+        results['cellid_uniqueness_4g'] += cs.check_cellid_uniqueness_4g(node_id, ciq_wb, e_name)
         results['params_4g'] += cs.check_rf_params_4g(node_id, log_text, ciq_wb, has_pre, retuned_cells, node_logs, moved_map)
         results['rbb_tx_isdlonly_4g'] += cs.check_rbb_tx_isdlonly_4g(node_id, ciq_wb, e_name)
         results['electrical_tilt_type'] += cs.check_electrical_tilt_type(node_id, ciq_wb, e_name)
