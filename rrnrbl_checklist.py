@@ -191,7 +191,33 @@ def _agg_cell_details(cells_results, cell_id_results, radio_results):
     return "mismatch", _group_bad_by_node_reason(bad, real, _reason)
 
 
-def _agg_cell_id(cell_id_results):
+def _agg_rbb_5g(results_5g):
+    """Row 42 ('RBB Type vs no.ofrx and tx from ENM'): same grouping
+    treatment as _agg_cell_id — 2+ cells on one node failing for the SAME
+    reason (RBB Type unparseable / RILink mismatch / TX-RX mismatch)
+    summarize to one line with the involved bands; a lone mismatch keeps
+    its full detail."""
+    if not results_5g:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in results_5g if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if not bad:
+        if real:
+            return "match", f"{len(real)} checked, no mismatch."
+        skipped_notes = {r.get("note") for r in results_5g if r.get("note")}
+        return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+
+    def _reason(r):
+        note = r.get("note") or ""
+        if "does not match the expected RBB" in note:
+            return "unparseable RBB Type"
+        if note.startswith("RILink"):
+            return "RILink mismatch"
+        if "TX/RX" in note:
+            return "TX/RX mismatch"
+        return "mismatch"
+
+    return "mismatch", _group_bad_by_node_reason(bad, real, _reason)
     """Cell ID checks (rows 40/59/66/74, all reading the same
     cell_id_vs_rfds results): same grouping treatment as
     _agg_cell_details — 2+ cells on one node with a Cell ID mismatch
@@ -720,7 +746,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (40, "CIQ tabs checks", "5g info", "nRTAC/ cellLocalId ENM Vs CIQ", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
         (41, "CIQ tabs checks", "5g info", "arfcnDL/ arfcnUL and bSChannelBwDL/ bSChannelBwDL\nENM Vs CIQ", "NR/Radio", lambda: _agg(results.get("arfcn_bw_5g", []))),
         (42, "CIQ tabs checks", "5g info", "RBB Type vs no.ofrx and tx from ENM", "Radio",
-         lambda: _agg([r for r in results.get("sector_swap", []) if r.get("kind") == "5g"])),
+         lambda: _agg_rbb_5g([r for r in results.get("sector_swap", []) if r.get("kind") == "5g"])),
         (43, "CIQ tabs checks", "5g info", "DSS check", "NR/Radio", lambda: _agg(results.get("dss", []))),
         (44, "CIQ tabs checks", "5g info", "ssbFrequency /ssbOffset/ ssbDuration ", "NR/Radio", lambda: _agg(results.get("params_5g", []))),
         (45, "CIQ tabs checks", "5g info", "NSA/SA", "NR/Radio", lambda: _agg(results.get("nr_tac", []))),
