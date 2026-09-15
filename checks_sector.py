@@ -775,17 +775,51 @@ def check_rfds_nrcelldu(node_id, ciq_wb, rfds_pages):
     return results
 
 
-def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name):
-    """5G Info 'Antenna Type' vs RFDS 'RF Inventory Details (Final)' antenna
-    model — confirmed exact string match on real data (both read
-    'NNH4-85B-R6' for the same cell). AIR-series radios (integrated
-    antenna, no separate ANTENNA row in RFDS at all — confirmed via
-    extract_rf_inventory_antennas's own docstring and real data: every
-    RBBAIR/AIR-6472 cell checked simply has no entry) are skipped rather
-    than flagged missing — that's expected, not a gap. A cell missing
-    from RFDS for any OTHER reason is also skipped here (check_cells_vs_
-    rfds already owns that finding) rather than duplicated as a second
-    'missing' result."""
+def check_antenna_model_vs_rfds_4g(node_id, ciq_wb, rfds_pages, e_name):
+    """LTE eUtran Parameters 'antenna model' vs RFDS 'RF Inventory Details
+    (Final)' antenna model — confirmed exact string match on real data
+    (both read 'NNH4-85B-R6' for the same cell). Same AIR-series/missing-
+    from-RFDS exemptions as the 5G version (check_antenna_type_vs_rfds).
+    Distinct from CIQ's separate 'Antenna type' column (values like
+    'MULTIPORT'), which is a different concept, not the physical model."""
+    if rfds_pages is None:
+        return [{'rule': '#69', 'node': node_id, 'cell': None, 'status': 'SKIPPED', 'note': 'No RFDS provided.'}]
+    import rfds_extract as rf
+    antennas = rf.extract_rf_inventory_antennas(rfds_pages)
+    results = []
+    for row in _rows(ciq_wb, 'eUtran Parameters'):
+        cell = row.get('EutranCellFDDId')
+        if not (cell and e_name and str(cell).startswith(e_name)):
+            continue
+        rfds_ant = antennas.get(cell, {}).get('model')
+        if not rfds_ant:
+            continue
+        ciq_ant = str(row.get('antenna model', '')).strip()
+        label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        match = ciq_ant == rfds_ant
+        note = 'Match.' if match else f"{where}: CIQ antenna model={ciq_ant} vs RFDS={rfds_ant}."
+        results.append({'rule': '#69', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': 'MATCH' if match else 'MISMATCH', 'note': note})
+    return results
+
+
+def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name, e_name=None):
+    """Antenna model vs RFDS 'RF Inventory Details (Final)' antenna model
+    — confirmed exact string match on real data, both sides (LTE and 5G):
+    LTE's 'antenna model' column and RFDS both read 'NNH4-85B-R6' for the
+    same cell; 5G's 'Antenna Type' column matches the same way. (LTE also
+    has a separate 'Antenna type' column reading 'MULTIPORT' — a
+    different concept, port configuration, not the antenna model itself;
+    not compared here.)
+
+    AIR-series radios (integrated antenna, no separate ANTENNA row in
+    RFDS at all — confirmed via extract_rf_inventory_antennas's own
+    docstring and real data: every RBBAIR/AIR-6472 cell checked simply
+    has no entry) are skipped rather than flagged missing — that's
+    expected, not a gap. A cell missing from RFDS for any OTHER reason is
+    also skipped here (check_cells_vs_rfds already owns that finding)
+    rather than duplicated as a second 'missing' result."""
     if rfds_pages is None:
         return [{'rule': '#47', 'node': node_id, 'cell': None, 'status': 'SKIPPED', 'note': 'No RFDS provided.'}]
     import rfds_extract as rf
@@ -800,10 +834,25 @@ def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name):
             continue
         ciq_ant = str(row.get('Antenna Type', '')).strip()
         label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
         match = ciq_ant == rfds_ant
         results.append({'rule': '#47', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
                          'status': 'MATCH' if match else 'MISMATCH',
-                         'note': 'Match.' if match else f'CIQ Antenna Type={ciq_ant} vs RFDS={rfds_ant}.'})
+                         'note': 'Match.' if match else f'{where}: CIQ Antenna Type={ciq_ant} vs RFDS={rfds_ant}.'})
+    for row in _rows(ciq_wb, 'eUtran Parameters'):
+        cell = row.get('EutranCellFDDId')
+        if not (cell and e_name and str(cell).startswith(e_name)):
+            continue
+        rfds_ant = antennas.get(cell, {}).get('model')
+        if not rfds_ant:
+            continue
+        ciq_ant = str(row.get('antenna model', '')).strip()
+        label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        match = ciq_ant == rfds_ant
+        results.append({'rule': '#69', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': 'MATCH' if match else 'MISMATCH',
+                         'note': 'Match.' if match else f'{where}: CIQ antenna model={ciq_ant} vs RFDS={rfds_ant}.'})
     return results
 
 
