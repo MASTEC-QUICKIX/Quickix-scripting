@@ -889,9 +889,12 @@ def check_arfcn_bw_5g(node_id, parsed, log_text, ciq_wb, has_pre_log, node_logs=
             pre_v = pre_vals.get(field) or 'NA'
             if pre_v != 'NA' and pre_v != ciq_v:
                 mismatched.append(f'{field}: {pre_v}/{ciq_v}')
+        label, sector = band_label(cell)
         status = 'MATCH' if not mismatched else 'MISMATCH'
-        note = 'Confirmed.' if not mismatched else '; '.join(mismatched)
-        results.append({'rule': '#41', 'node': node_id, 'cell': cell, 'status': status, 'note': note})
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        note = 'Confirmed.' if not mismatched else f"{where}: " + '; '.join(mismatched)
+        results.append({'rule': '#41', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': status, 'note': note})
     return results
 
 
