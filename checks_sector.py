@@ -1190,6 +1190,25 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_na
         if len(group) < 2:
             out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MATCH", "note": "Unique."})
             continue
+        # CBAND/DOD/DOD_BWE (the N77 carrier tiers '_1'/'_2'/'_3') sharing a
+        # port on the SAME sector is legitimate by construction — they're
+        # the same physical radio's own carrier tiers, not a genuine
+        # cross-band clash, and 'Co-Located Technology Cell' isn't used
+        # for this case at all (confirmed real CIQ: that field reads 'NA'
+        # on every one of these cells even when correctly co-located).
+        # Only flags if the port is ALSO used by a cell OUTSIDE this
+        # same-sector CBAND/DOD/DOD_BWE group — a genuine different-band
+        # reuse of a CBAND port.
+        def _sector_of(c):
+            _, sector = band_label(c["cell"])
+            return sector
+        n77_tier_group = all(is_dod_cell(c["cell"]) or is_cband_cell(c["cell"]) for c in group)
+        same_sector = len({_sector_of(c) for c in group}) == 1
+        if n77_tier_group and same_sector:
+            out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MATCH",
+                        "note": f"Port {port} shared by CBAND/DOD/DOD_BWE carrier tiers on the same sector: "
+                                f"{', '.join(sorted(c['cell'] for c in group))}"})
+            continue
         bad = [c for c in group if not all(other["cell"] in c["co_located"]
                                             for other in group if other is not c)]
         if bad:
