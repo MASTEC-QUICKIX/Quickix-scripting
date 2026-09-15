@@ -398,9 +398,12 @@ def check_mmwave_rach(node_id, ciq_wb):
 def check_sef_fru(node_id, ciq_wb):
     """Rule #9 - SEF/FRU sharing vs uniqueness, radio-type dependent:
       - 6472 present + both CBAND and DOD (or DOD_BWE) cells -> SEF/FRU
-        SHARING is expected/correct (sharing radio by default).
-      - 6419/6449 (single-band radios) -> SEF/FRU must be UNIQUE per
-        CBAND|DOD cell.
+        SHARING is expected/correct (sharing radio by default) — not
+        required to be shared, just allowed to be, so always INFO.
+      - 6419/6449 (single-band radios) -> BOTH SectorEquipmentFunction
+        AND RRU FieldReplaceableUnit must be unique per CBAND|DOD cell.
+        An earlier version only checked SEF, never FRU, missing a real
+        FRU-only duplicate.
       - 8863/4461/4467 -> RRU FieldReplaceableUnit must start with 'RRU'."""
     fiveg_rows = _rows(ciq_wb, '5G Info')
     cband_dod_rows = [r for r in fiveg_rows if r.get('NRCellDU') and
@@ -420,12 +423,16 @@ def check_sef_fru(node_id, ciq_wb):
                              'rru_type': rru_type, 'sef': sef, 'fru': fru,
                              'note': '6472 radio - CBAND/DOD/DOD_BWE sharing this radio is expected.'})
         elif any(m in rru_type for m in ('6419', '6449')):
-            dup = any(other is not row and other.get('SectorEquipmentFunction') == sef
-                      for other in cband_dod_rows if is_cband_cell(other.get('NRCellDU')) or is_dod_cell(other.get('NRCellDU')))
+            dup_sef = any(other is not row and other.get('SectorEquipmentFunction') == sef
+                          for other in cband_dod_rows if is_cband_cell(other.get('NRCellDU')) or is_dod_cell(other.get('NRCellDU')))
+            dup_fru = any(other is not row and other.get('RRU FieldReplaceableUnit') == fru
+                          for other in cband_dod_rows if is_cband_cell(other.get('NRCellDU')) or is_dod_cell(other.get('NRCellDU')))
+            bad_fields = [f for f, dup in (('SEF', dup_sef), ('RRU FieldReplaceableUnit', dup_fru)) if dup]
             results.append({'rule': '#9', 'node': node_id, 'cell': cell,
-                             'status': 'MISMATCH' if dup else 'MATCH',
+                             'status': 'MISMATCH' if bad_fields else 'MATCH',
                              'rru_type': rru_type, 'sef': sef, 'fru': fru,
-                             'note': 'SEF/FRU must be unique for single-band radio but is shared.' if dup else 'Unique, as required.'})
+                             'note': f"{'/'.join(bad_fields)} must be unique for single-band radio but is shared."
+                                     if bad_fields else 'Unique, as required.'})
         elif any(m in rru_type for m in ('8863', '4461', '4467')):
             ok = str(fru or '').strip().upper().startswith('RRU')
             results.append({'rule': '#9', 'node': node_id, 'cell': cell,
