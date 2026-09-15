@@ -909,7 +909,7 @@ def check_rf_params_5g(node_id, parsed, log_text, ciq_wb, has_pre_log, retuned_c
     return results
 
 
-def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb):
+def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_name=None):
     """CIQ-only design check (POST/target, not a Pre log check — confirmed):
     once a physical RiPort is used for one band on this node, no OTHER
     band/sector may reuse that same port UNLESS the two cells are listed
@@ -926,17 +926,32 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb):
     unique' show under one checklist result instead of two disconnected
     ones).
 
+    e_name/g_name (from Mixed Mode Info, same pairing
+    build_primary_secondary_node_list() uses): each sheet is filtered by
+    its OWN matching identity, not by the single node_id for both —
+    confirmed real gap on a TMBB site (TNL01216/TNMN001216): NR cells are
+    prefixed with the SECONDARY's name ('TNMN001216_N002A_1'), not the
+    physical node_id passed in for the primary ('TNL01216'), so a single
+    node_id used to filter BOTH sheets silently excluded every NR cell —
+    the cross-technology co-location (port D shared between
+    TNL01216_2A_1 and TNMN001216_N002A_1, confirmed legitimate) was never
+    actually checked as one group. Falls back to node_id for whichever of
+    e_name/g_name isn't given, so a plain single-identity node still
+    works exactly as before.
+
     Ports are scoped to a comma-split of 'Co-Located Technology Cell' —
     a cell can be listed for more than one co-located partner (a 3-way
     combine), and the check only requires EVERY other cell sharing that
     exact port to appear somewhere in this cell's own list (not the
     reverse — a real CIQ can leave the list one-directional on one side
     of a pair)."""
-    def _cells(sheet, id_col, port_cols, co_col):
+    def _cells(sheet, id_col, port_cols, co_col, prefix):
         out = []
+        if not prefix:
+            return out
         for row in _rows(ciq_wb, sheet):
             cid = str(row.get(id_col) or "").strip()
-            if not cid or not cid.upper().startswith(str(node_id).upper()):
+            if not cid or not cid.upper().startswith(str(prefix).upper()):
                 continue
             ports = set()
             for pc in port_cols:
@@ -949,8 +964,10 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb):
         return out
 
     cells = (_cells("eUtran Parameters", "EutranCellFDDId",
-                     ["DUS / XMU Port", "DUS / XMU Port Expansion"], "Co-Located Technology Cell")
-             + _cells("5G Info", "NRCellDU", ["Port 1", "Port 2", "Port 3", "Port 4"], "Co-Located Technology Cell"))
+                     ["DUS / XMU Port", "DUS / XMU Port Expansion"], "Co-Located Technology Cell",
+                     e_name or node_id)
+             + _cells("5G Info", "NRCellDU", ["Port 1", "Port 2", "Port 3", "Port 4"],
+                      "Co-Located Technology Cell", g_name or node_id))
     if not cells:
         return []
 
