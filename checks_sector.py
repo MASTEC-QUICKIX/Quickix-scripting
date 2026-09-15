@@ -807,6 +807,54 @@ def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name):
     return results
 
 
+def check_enb_identity_consistency(node_id, ciq_wb, e_name):
+    """eNBId/eNodeB Name must agree across Mixed Mode Info, eNB Info, and
+    eUtran Parameters — confirmed real CIQ columns: Mixed Mode Info and
+    eNB Info both have 'eNBId'/'eNodeB Name'; eUtran Parameters has its
+    own per-cell 'eNBId' column but no eNodeB Name column at all, so only
+    eNBId is cross-checked against it. eUtran Parameters has one row per
+    cell, not per node — collapsed to its distinct set of values first, so
+    a cell that disagrees with its own tab's siblings is itself part of
+    the mismatch, not silently picked from one row."""
+    if not e_name:
+        return []
+    e_upper = e_name.strip().upper()
+    mm_row = next((r for r in _rows(ciq_wb, 'Mixed Mode Info')
+                   if str(r.get('eNodeB Name') or '').strip().upper() == e_upper), None)
+    enb_row = next((r for r in _rows(ciq_wb, 'eNB Info')
+                    if str(r.get('eNodeB Name') or '').strip().upper() == e_upper), None)
+    eutran_rows = [r for r in _rows(ciq_wb, 'eUtran Parameters')
+                   if str(r.get('EutranCellFDDId') or '').strip().upper().startswith(e_upper)]
+
+    def _val(v):
+        return str(v).strip() if v is not None else ''
+
+    id_sources, name_sources = {}, {}
+    if mm_row:
+        id_sources['Mixed Mode Info'] = _val(mm_row.get('eNBId'))
+        name_sources['Mixed Mode Info'] = _val(mm_row.get('eNodeB Name'))
+    if enb_row:
+        id_sources['eNB Info'] = _val(enb_row.get('eNBId'))
+        name_sources['eNB Info'] = _val(enb_row.get('eNodeB Name'))
+    if eutran_rows:
+        ids = {_val(r.get('eNBId')) for r in eutran_rows}
+        id_sources['eUtran Parameters'] = '/'.join(sorted(ids))
+
+    if len(id_sources) < 2 and len(name_sources) < 2:
+        return [{'rule': '#54', 'node': node_id, 'cell': e_name, 'status': 'SKIPPED',
+                 'note': f"Only found in {', '.join(set(id_sources) | set(name_sources)) or 'no tab'} - nothing to cross-check."}]
+
+    mismatches = []
+    if len({v for v in id_sources.values() if v}) > 1:
+        mismatches.append('eNBId differs: ' + ', '.join(f'{k}={v}' for k, v in id_sources.items()))
+    if len({v for v in name_sources.values() if v}) > 1:
+        mismatches.append('eNodeB Name differs: ' + ', '.join(f'{k}={v}' for k, v in name_sources.items()))
+    status = 'MISMATCH' if mismatches else 'MATCH'
+    note = ('; '.join(mismatches) if mismatches else
+            'eNBId/eNodeB Name consistent across Mixed Mode Info, eNB Info, eUtran Parameters.')
+    return [{'rule': '#54', 'node': node_id, 'cell': e_name, 'status': status, 'note': note}]
+
+
 def check_gnb_du_type_vs_5g_bbu_type(node_id, ciq_wb, g_name, e_name=None):
     """Board type must agree across gNB Info 'DU type', eNB Info 'DU type'
     (same physical BBU, TMBB/MMBB pairing), and 5G Info 'BBU Type' —
