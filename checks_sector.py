@@ -187,7 +187,17 @@ def check_sector_swap_config(node_id, log_text, ciq_wb, e_name, g_name=None, nod
     and is NOT AVAILABLE rather than guessed.
 
     node_logs/moved_map: see check_rf_params_4g's docstring - a moved-in
-    cell's real sec_id/TX-RX/Power lives on its SOURCE node's log."""
+    cell's real sec_id/TX-RX/Power lives on its SOURCE node's log.
+
+    Standalone 5G (own radio, not co-located with LTE): TX/RX comes from
+    'RBB Type' via parse_rbb_txrx() ('RBB44_1D' -> '4x4', confirmed real
+    CIQ naming convention — the two digits right after 'RBB' ARE the
+    TX/RX count; RBBAIR_* codes don't follow this pattern and correctly
+    fall back to NOT FOUND rather than a guess), compared against
+    fiveg_config's real Pre noOfTxAntennas/noOfRxAntennas reading. An
+    earlier version extracted fiveg_config but never actually compared it
+    here — only RILink Single/Double vs the RBB suffix was checked, so a
+    genuine TX/RX mismatch on a standalone 5G radio went unflagged."""
     if not log_text:
         return []
     lte_config = _extract_sector_config(log_text)
@@ -216,7 +226,7 @@ def check_sector_swap_config(node_id, log_text, ciq_wb, e_name, g_name=None, nod
             mismatches.append(f'TX/RX Pre={pre_txrx} vs CIQ={ciq_txrx}')
         if pre_power != 'NOT AVAILABLE' and ciq_power and pre_power != ciq_power:
             mismatches.append(f'Power Pre={pre_power} vs CIQ={ciq_power}')
-        results.append({'rule': '#21/#22/#32', 'node': node_id, 'cell': cell,
+        results.append({'rule': '#21/#22/#32', 'kind': 'lte', 'node': node_id, 'cell': cell,
                          'sec_id': ciq_sec_id, 'pre_sec_id': pre_sec_id,
                          'pre_txrx': pre_txrx, 'ciq_txrx': ciq_txrx,
                          'pre_power': pre_power, 'ciq_power': ciq_power,
@@ -243,15 +253,19 @@ def check_sector_swap_config(node_id, log_text, ciq_wb, e_name, g_name=None, nod
             ciq_txrx = pe.parse_rbb_txrx(rbb) or 'NOT FOUND'
             ciq_ri = 'Double' if '_1D' in str(rbb or '') else ('Single' if '_1S' in str(rbb or '') else 'NOT FOUND')
             pre_ri = rilink.get(cell, 'NA')
+            cfg5g = fiveg_config.get(cell)
+            pre_txrx = f"{cfg5g['tx']}x{cfg5g['rx']}" if cfg5g else 'NOT AVAILABLE'
             mismatches = []
             if pre_ri != 'NA' and ciq_ri != 'NOT FOUND' and pre_ri != ciq_ri:
                 mismatches.append(f'RILink Pre={pre_ri} vs CIQ={ciq_ri}')
-            results.append({'rule': '#21/#22/#32', 'node': node_id, 'cell': cell,
+            if pre_txrx != 'NOT AVAILABLE' and ciq_txrx != 'NOT FOUND' and pre_txrx != ciq_txrx:
+                mismatches.append(f'TX/RX Pre={pre_txrx} vs CIQ={ciq_txrx} (RBB Type {rbb})')
+            results.append({'rule': '#21/#22/#32', 'kind': '5g', 'node': node_id, 'cell': cell,
                              'sec_id': 'NA', 'pre_sec_id': 'NA',
-                             'pre_txrx': pre_ri, 'ciq_txrx': f'{ciq_txrx} ({ciq_ri})',
+                             'pre_txrx': pre_txrx, 'ciq_txrx': ciq_txrx,
                              'pre_power': 'NA', 'ciq_power': str(row.get('configuredMaxTxPower', '')).strip(),
                              'status': 'MISMATCH' if mismatches else 'MATCH',
-                             'note': '; '.join(mismatches) if mismatches else 'RBB Type/RILink (standalone 5G radio).'})
+                             'note': '; '.join(mismatches) if mismatches else 'RBB Type/RILink/TX-RX confirmed (standalone 5G radio).'})
     return results
 
 
