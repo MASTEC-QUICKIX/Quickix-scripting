@@ -244,6 +244,40 @@ def _agg_row47(cells_results, cell_id_results, radio_results, nrcelldu_results, 
     return "manual", f"{base} {manual_note}"
 
 
+def _agg_row63(rbb_results, rilink_results):
+    """Row 63 ('TxRx / RBB Type Need to be checked with - Single / Double
+    RILink - RRU type & RBB type'): combines the SAME RBB Type/TX-RX/
+    Radio Port validation as row 58 (check_rbb_tx_isdlonly_4g) with the
+    Pre-vs-CIQ RILink comparison (check_rilink_vs_rbb_4g) — same grouping
+    convention as the other rows."""
+    all_results = rbb_results + rilink_results
+    if not all_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in all_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if not bad:
+        if real:
+            return "match", f"{len(real)} checked, no mismatch."
+        skipped_notes = {r.get("note") for r in all_results if r.get("note")}
+        return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+
+    def _reason(r):
+        note = r.get("note") or ""
+        if "does not match the expected RBB" in note:
+            return "unparseable RBB type"
+        if "ISDLONLY" in note:
+            return "ISDLONLY mismatch"
+        if "implies TX/RX" in note:
+            return "RBB/TX-RX mismatch"
+        if "implies" in note and "link but Radio Port" in note:
+            return "Radio Port link mismatch"
+        if r.get("rule") == "#63":
+            return "RILink Pre vs CIQ mismatch"
+        return "mismatch"
+
+    return "mismatch", _group_bad_by_node_reason(bad, real, _reason)
+
+
 def _agg_electrical_tilt_type(results_tilt):
     """Row 61 ('electricalAntennaTilt should be integer value not
     character'): same grouping treatment as the other rows — whole-band
@@ -982,7 +1016,8 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (60, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection should match with RFDS - EutranCell", "Radio", lambda: _agg_row60(results.get("cells_vs_rfds", []))),
         (61, "CIQ tabs checks", "eUtran Parameters Tab", "electricalAntennaTilt should be integer value not character - Tilt", "Radio", lambda: _agg_electrical_tilt_type(results.get("electrical_tilt_type", []))),
         (62, "CIQ tabs checks", "eUtran Parameters Tab", "configuredOutputPower depends on RRU type (Ericsson 4490, 4890, or 4472 radios (e.g., NSB or Allagi projects, New Carrier Adds, Radio Swaps) will be Configured with maximum allowed power of 160W.) - configuredOutputPower", "Radio", None),
-        (63, "CIQ tabs checks", "eUtran Parameters Tab", "TxRx / RBB Type Need to be checked with - Single / Double RILink - RRU type & RBB type", "Radio", lambda: _agg(results.get("params_4g", []))),
+        (63, "CIQ tabs checks", "eUtran Parameters Tab", "TxRx / RBB Type Need to be checked with - Single / Double RILink - RRU type & RBB type", "Radio",
+         lambda: _agg_row63(results.get("rbb_tx_isdlonly_4g", []), results.get("rilink_vs_rbb_4g", []))),
         (64, "CIQ tabs checks", "eUtran Parameters Tab", "1)Compare Sectorid With Carrier Progression - sectorId / Carrier", "Radio", lambda: _agg(results.get("carrier_progression", []))),
         (65, "CIQ tabs checks", "eUtran Parameters Tab", "PhysicalLayerCellIdGroup and physicalLayerSubCellId should be unique - PCI", "Radio", lambda: _agg(results.get("pci_4g", []) + results.get("pci_5g", []))),
         (66, "CIQ tabs checks", "eUtran Parameters Tab", "Pre-existing node cellId must be same as ENM & N2E/NSB site CellId should be match with RFDS - Cellid", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
