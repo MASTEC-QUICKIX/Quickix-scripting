@@ -1870,11 +1870,22 @@ def check_sector_id_4890(node_id, ciq_wb, e_name=None):
     return out
 
 
-def check_losses_vs_antenna_sectors(node_id, ciq_wb, e_name=None):
+def check_losses_vs_antenna_sectors(node_id, ciq_wb, e_name=None, g_name=None):
     """'Checks if the sectors present in the Antenna info & Losses and
     delays tab' — both CIQ sheets are keyed by EutranCellFDDId (confirmed
     real CIQ), and every LTE sector should appear in both; a sector present
-    in one but missing from the other is a flag."""
+    in one but missing from the other is a flag.
+
+    ALSO: 'Losses and Delays' is not LTE-only despite its own column being
+    named EutranCellFDDId — confirmed real CIQ data: non-AIR-radio 5G
+    cells (CBAND/DOD/DOD_BWE on a discrete RRU, not an integrated AIR
+    radio) DO appear there under their own NRCellDU-style name in that
+    same column. AIR-radio CBAND/DOD/DOD_BWE cells (integrated antenna,
+    no separate feeder/connector losses to declare) are correctly ABSENT
+    — confirmed on a real site where every AIR6472 N077 cell has no row
+    here at all while non-AIR N005 cells do. So every non-AIR CBAND/DOD/
+    DOD_BWE cell must be present in Losses and Delays; an AIR-radio one
+    is exempt, not flagged missing."""
     if "Antenna Information" not in ciq_wb.sheetnames or "Losses and Delays" not in ciq_wb.sheetnames:
         return [{'rule': None, 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
                  'note': 'Antenna Information or Losses and Delays sheet missing from this CIQ.'}]
@@ -1890,19 +1901,44 @@ def check_losses_vs_antenna_sectors(node_id, ciq_wb, e_name=None):
 
     antenna_cells = _cells("Antenna Information")
     losses_cells = _cells("Losses and Delays")
-    if not antenna_cells and not losses_cells:
-        return [{'rule': None, 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
-                 'note': 'No LTE sectors found for this node on either sheet.'}]
+
     out = []
-    for cell in sorted(antenna_cells - losses_cells):
-        out.append({'rule': None, 'node': node_id, 'cell': cell, 'status': 'MISMATCH',
-                    'note': 'In Antenna Information but missing from Losses and Delays.'})
-    for cell in sorted(losses_cells - antenna_cells):
-        out.append({'rule': None, 'node': node_id, 'cell': cell, 'status': 'MISMATCH',
-                    'note': 'In Losses and Delays but missing from Antenna Information.'})
+    if antenna_cells or losses_cells:
+        for cell in sorted(antenna_cells - losses_cells):
+            out.append({'rule': None, 'node': node_id, 'cell': cell, 'status': 'MISMATCH',
+                        'note': 'In Antenna Information but missing from Losses and Delays.'})
+        for cell in sorted(losses_cells - antenna_cells):
+            out.append({'rule': None, 'node': node_id, 'cell': cell, 'status': 'MISMATCH',
+                        'note': 'In Losses and Delays but missing from Antenna Information.'})
+        if not (antenna_cells - losses_cells) and not (losses_cells - antenna_cells):
+            out.append({'rule': None, 'node': node_id, 'cell': '-', 'status': 'MATCH',
+                        'note': f'{len(antenna_cells)} sector(s) present on both sheets.'})
+
+    if g_name:
+        non_air_5g_cells = []
+        for row in _rows(ciq_wb, '5G Info'):
+            cell = row.get('NRCellDU')
+            if not (cell and str(cell).startswith(g_name)):
+                continue
+            if not (is_dod_cell(cell) or is_cband_cell(cell)):
+                continue
+            if 'AIR' in str(row.get('RRU Type', '')).upper():
+                continue
+            non_air_5g_cells.append(cell)
+        for cell in sorted(non_air_5g_cells):
+            label, sector = band_label(cell)
+            where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+            if cell in losses_cells:
+                out.append({'rule': None, 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                            'status': 'MATCH', 'note': f'{where}: present in Losses and Delays.'})
+            else:
+                out.append({'rule': None, 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                            'status': 'MISMATCH',
+                            'note': f'{where}: non-AIR CBAND/DOD/DOD_BWE cell missing from Losses and Delays.'})
+
     if not out:
-        out.append({'rule': None, 'node': node_id, 'cell': '-', 'status': 'MATCH',
-                    'note': f'{len(antenna_cells)} sector(s) present on both sheets.'})
+        out.append({'rule': None, 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                    'note': 'No LTE sectors found for this node on either sheet.'})
     return out
 
 
