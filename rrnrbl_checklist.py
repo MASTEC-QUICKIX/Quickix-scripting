@@ -20,7 +20,7 @@ import re
 import openpyxl
 
 import ciq_edp_reader as cer
-from band_labels import SECTOR_ORDER
+from band_labels import SECTOR_ORDER, is_5g_cell
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Checklist_RRNRBL.xlsx")
 
@@ -173,6 +173,32 @@ def _group_bad_by_node_reason(bad, real, reason_of):
         parts.append(f"{node}: {len(entries)} sector(s) with {reason} ({', '.join(label_parts)}).")
     more = f" (+{len(parts)-6} more)" if len(parts) > 6 else ""
     return "; ".join(parts[:6]) + more
+
+
+def _agg_row60(cells_results):
+    """Row 60: EutranCellFDDId presence, CIQ vs RFDS — filtered to LTE
+    cells only from cells_vs_rfds (which combines LTE+5G), using
+    is_5g_cell() to tell them apart. beamDirection has NO RFDS extraction
+    anywhere (same gap as row 47 — that data lives on RFDS's still-unbuilt
+    'AntennaPositionDetails' page), so it's always flagged for manual
+    verification regardless of the automated portion's outcome. A clean
+    automated pass is 'info' (blue), not 'match' — partially checked, not
+    a full pass."""
+    lte_results = [r for r in cells_results if r.get("cell") and not is_5g_cell(r["cell"])]
+    manual_note = "Verify the beamDirection manually."
+    if not lte_results:
+        return "manual", manual_note
+    real = [r for r in lte_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if bad:
+        def _reason(r):
+            return "not found in RFDS" if r.get("note") == "Not found in RFDS." else "found in RFDS but not in CIQ"
+        return "mismatch", _group_bad_by_node_reason(bad, real, _reason) + " " + manual_note
+    if real:
+        return "info", f"{len(real)} checked, no mismatch. {manual_note}"
+    skipped_notes = {r.get("note") for r in lte_results if r.get("note")}
+    base = "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+    return "manual", f"{base} {manual_note}"
 
 
 def _agg_row47(cells_results, cell_id_results, radio_results, nrcelldu_results, antenna_results):
@@ -936,7 +962,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (57, "CIQ tabs checks", "eUtran Parameters Tab", "earfcnDl/ dlChannelBandwidth ENM vs CIQ", "NR/Radio", lambda: _agg_params_4g(results.get("params_4g", []))),
         (58, "CIQ tabs checks", "eUtran Parameters Tab", "RBB type/ noOfTx/noOfRx\nIdentify  ISDLONLY carrier", "NR/Radio", lambda: _agg_rbb_tx_isdlonly_4g(results.get("rbb_tx_isdlonly_4g", []))),
         (59, "CIQ tabs checks", "eUtran Parameters Tab", "cellId ENM vs CIQ \nIdentify cellid change SOW", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
-        (60, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection should match with RFDS - EutranCell", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
+        (60, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection should match with RFDS - EutranCell", "Radio", lambda: _agg_row60(results.get("cells_vs_rfds", []))),
         (61, "CIQ tabs checks", "eUtran Parameters Tab", "electricalAntennaTilt should be integer value not character - Tilt", "Radio", lambda: _agg(results.get("params_4g", []))),
         (62, "CIQ tabs checks", "eUtran Parameters Tab", "configuredOutputPower depends on RRU type (Ericsson 4490, 4890, or 4472 radios (e.g., NSB or Allagi projects, New Carrier Adds, Radio Swaps) will be Configured with maximum allowed power of 160W.) - configuredOutputPower", "Radio", None),
         (63, "CIQ tabs checks", "eUtran Parameters Tab", "TxRx / RBB Type Need to be checked with - Single / Double RILink - RRU type & RBB type", "Radio", lambda: _agg(results.get("params_4g", []))),
