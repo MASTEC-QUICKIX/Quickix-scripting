@@ -1148,6 +1148,49 @@ def check_arfcn_bw_5g(node_id, parsed, log_text, ciq_wb, has_pre_log, node_logs=
     return results
 
 
+def check_rbb_tx_isdlonly_4g(node_id, ciq_wb, e_name):
+    """Row 58: LTE 'RBB type' vs CIQ's own 'noOfTxAntennas'/'noOfRxAntennas'
+    and 'Radio Port' columns — CIQ-internal consistency, confirmed real
+    data ('RBB44_1D' with noOfTxAntennas=4/noOfRxAntennas=4 and Radio
+    Port='DATA1' — single port, matching the '_1' Single-link suffix).
+    Plus: if noOfTxAntennas is 0 (no transmit antennas — a downlink-only
+    carrier), ISDLONLY must be TRUE in CIQ."""
+    if not e_name:
+        return []
+    results = []
+    for row in _rows(ciq_wb, 'eUtran Parameters'):
+        cell = row.get('EutranCellFDDId')
+        if not (cell and str(cell).startswith(e_name)):
+            continue
+        rbb = row.get('RBB type')
+        rbb_txrx = pe.parse_rbb_txrx(rbb)
+        ciq_tx = str(row.get('noOfTxAntennas', '')).strip()
+        ciq_rx = str(row.get('noOfRxAntennas', '')).strip()
+        ciq_txrx = f'{ciq_tx}x{ciq_rx}' if ciq_tx and ciq_rx else None
+        isdlonly = str(row.get('ISDLONLY', '')).strip().upper()
+        radio_port = str(row.get('Radio Port', '')).strip()
+        rbb_link = pe.parse_rbb_link(rbb)
+        radio_port_link = 'Double' if '/' in radio_port else ('Single' if radio_port else None)
+
+        label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        mismatches = []
+        if rbb_txrx is None:
+            mismatches.append(f"RBB type '{rbb}' does not match the expected RBB<TX><RX> pattern.")
+        elif ciq_txrx and rbb_txrx != ciq_txrx:
+            mismatches.append(f"RBB type {rbb} implies TX/RX {rbb_txrx} but noOfTxAntennas/noOfRxAntennas={ciq_txrx}.")
+        if ciq_tx == '0' and isdlonly != 'TRUE':
+            mismatches.append(f"noOfTxAntennas=0 but ISDLONLY='{isdlonly or 'blank'}' (expected TRUE).")
+        if rbb_link and radio_port_link and rbb_link != radio_port_link:
+            mismatches.append(f"RBB type {rbb} implies {rbb_link} link but Radio Port='{radio_port}' is {radio_port_link}.")
+
+        status = 'MATCH' if not mismatches else 'MISMATCH'
+        note = 'Confirmed.' if not mismatches else f"{where}: " + '; '.join(mismatches)
+        results.append({'rule': '#58', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': status, 'note': note})
+    return results
+
+
 def check_rf_params_4g(node_id, log_text, ciq_wb, has_pre_log, retuned_cells=None, node_logs=None, moved_map=None):
     """Blueprint section 10 'Parameters Verification - 4G' (#19). One row
     per cell, each field shown as a single 'Pre | CIQ' string per the
