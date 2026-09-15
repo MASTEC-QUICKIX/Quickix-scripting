@@ -20,6 +20,7 @@ import re
 import openpyxl
 
 import ciq_edp_reader as cer
+from band_labels import SECTOR_ORDER
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Checklist_RRNRBL.xlsx")
 
@@ -100,14 +101,29 @@ def _agg(results_list, note_fields=("node", "cell", "note")):
     return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
 
 
-def _group_bad_by_node_reason(bad, reason_of):
+def _group_bad_by_node_reason(bad, real, reason_of):
     """Shared core for the 'not found in RFDS' / RRU / Cell ID grouping:
     when 2+ cells on the SAME node fail for the SAME reason, produce one
-    summary line (count + involved band labels via band_labels.band_label)
-    instead of listing each cell's full detail. A LONE mismatch on a node
-    keeps its full per-cell detail (Pre/CIQ/RFDS values, etc.) — a single
-    discrepancy is worth seeing in full, not compressed. reason_of(r)
-    returns the grouping key's human label (e.g. 'not found in RFDS')."""
+    summary line (count + involved bands) instead of listing each cell's
+    full detail. A LONE mismatch on a node keeps its full per-cell detail
+    (Pre/CIQ/RFDS values, etc.) — a single discrepancy is worth seeing in
+    full, not compressed. reason_of(r) returns the grouping key's human
+    label (e.g. 'not found in RFDS').
+
+    Within a grouped line, each band shows its SECTOR letters too when
+    only PART of that band failed — confirmed real need: 'AWS_1 Alpha,
+    Beta' failing while Gamma passes must stay visible even once grouped,
+    not collapse to a bare band name that reads as if all sectors failed.
+    'real' (every checked result, match + mismatch) is the denominator
+    used to tell whole-band-failed (just the band name) from
+    partial-band-failed (band name + the specific sector letters) —
+    using 'bad' alone can't make that distinction, since it has no record
+    of which sectors PASSED."""
+    checked_sectors = {}
+    for r in real:
+        key = (r.get("node"), r.get("label"))
+        checked_sectors.setdefault(key, set()).add(r.get("sector"))
+
     by_node_reason = {}
     for r in bad:
         key = (r.get("node"), reason_of(r))
@@ -119,9 +135,19 @@ def _group_bad_by_node_reason(bad, reason_of):
             r = entries[0]
             bits = [str(r.get(f)) for f in ("node", "cell", "note") if r.get(f)]
             parts.append(": ".join(bits) if bits else str(r))
-        else:
-            labels = sorted({r.get("label") or "unknown band" for r in entries})
-            parts.append(f"{node}: {len(entries)} sector(s) with {reason} ({', '.join(labels)}).")
+            continue
+        failed_sectors_by_label = {}
+        for r in entries:
+            failed_sectors_by_label.setdefault(r.get("label") or "unknown band", set()).add(r.get("sector"))
+        label_parts = []
+        for label, failed in sorted(failed_sectors_by_label.items()):
+            total = checked_sectors.get((node, label), set())
+            if total and failed >= total:
+                label_parts.append(label)
+            else:
+                ordered = [s for s in SECTOR_ORDER if s in failed] or sorted(s for s in failed if s)
+                label_parts.append(f"{label} ({', '.join(ordered)})" if ordered else label)
+        parts.append(f"{node}: {len(entries)} sector(s) with {reason} ({', '.join(label_parts)}).")
     more = f" (+{len(parts)-6} more)" if len(parts) > 6 else ""
     return "; ".join(parts[:6]) + more
 
@@ -149,19 +175,22 @@ def _agg_cell_details(cells_results, radio_results):
     def _reason(r):
         if r.get("note") == "Not found in RFDS.":
             return "not found in RFDS"
+        if r.get("note") == "Found in RFDS but not in CIQ.":
+            return "found in RFDS but not in CIQ"
         if r.get("note") == "RFDS does not confirm CIQ RRU type.":
             return "RRU type mismatch"
         return "mismatch"
 
-    return "mismatch", _group_bad_by_node_reason(bad, _reason)
+    return "mismatch", _group_bad_by_node_reason(bad, real, _reason)
 
 
 def _agg_cell_id(cell_id_results):
     """Cell ID checks (rows 40/59/66/74, all reading the same
     cell_id_vs_rfds results): same grouping treatment as
     _agg_cell_details — 2+ cells on one node with a Cell ID mismatch
-    summarize to one line with the involved band labels; a lone mismatch
-    keeps its full Pre/CIQ/RFDS detail."""
+    summarize to one line with the involved bands (and specific sector
+    letters when only part of a band failed); a lone mismatch keeps its
+    full Pre/CIQ/RFDS detail."""
     if not cell_id_results:
         return "unknown", "No data (check did not run for this site)."
     real = [r for r in cell_id_results if r.get("status") not in (None, "SKIPPED")]
@@ -171,7 +200,7 @@ def _agg_cell_id(cell_id_results):
             return "match", f"{len(real)} checked, no mismatch."
         skipped_notes = {r.get("note") for r in cell_id_results if r.get("note")}
         return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
-    return "mismatch", _group_bad_by_node_reason(bad, lambda r: "Cell ID mismatch")
+    return "mismatch", _group_bad_by_node_reason(bad, real, lambda r: "Cell ID mismatch")
 
 
 def _worst_status(statuses):
