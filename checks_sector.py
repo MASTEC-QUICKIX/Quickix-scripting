@@ -1925,16 +1925,16 @@ def check_losses_vs_antenna_sectors(node_id, ciq_wb, e_name=None, g_name=None):
             if 'AIR' in str(row.get('RRU Type', '')).upper():
                 continue
             non_air_5g_cells.append(cell)
-        for cell in sorted(non_air_5g_cells):
-            label, sector = band_label(cell)
-            where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
-            if cell in losses_cells:
+        missing_5g = [c for c in non_air_5g_cells if c not in losses_cells]
+        if missing_5g:
+            for cell in sorted(missing_5g):
+                label, sector = band_label(cell)
+                where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
                 out.append({'rule': None, 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
-                            'status': 'MATCH', 'note': f'{where}: present in Losses and Delays.'})
-            else:
-                out.append({'rule': None, 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
-                            'status': 'MISMATCH',
-                            'note': f'{where} missing in the Losses and Delays tab.'})
+                            'status': 'MISMATCH', 'note': f'{where} missing in the Losses and Delays tab.'})
+        elif non_air_5g_cells:
+            out.append({'rule': None, 'node': node_id, 'cell': '-', 'status': 'MATCH',
+                        'note': 'All sectors present in the Losses and Delays tab.'})
 
     if not out:
         out.append({'rule': None, 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
