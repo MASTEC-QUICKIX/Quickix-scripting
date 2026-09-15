@@ -1561,6 +1561,37 @@ def check_radio_port_conflict(node_id, ciq_wb):
     return results
 
 
+def check_cellid_uniqueness_4g(node_id, ciq_wb, e_name):
+    """LTE cellId must be unique across ALL bands on the same node — unlike
+    PCI (scoped per-band), a cellId clash between two different bands on
+    ONE node is still a real conflict. A different physical node reusing
+    the same cellId is fine (confirmed: no cross-node scoping needed)."""
+    if not e_name:
+        return []
+    counts = {}
+    rows_by_cell = {}
+    for row in _rows(ciq_wb, 'eUtran Parameters'):
+        cell = row.get('EutranCellFDDId')
+        if not (cell and str(cell).startswith(e_name)):
+            continue
+        cid = str(row.get('cellId', '')).strip()
+        if not cid:
+            continue
+        counts.setdefault(cid, []).append(cell)
+        rows_by_cell[cell] = cid
+
+    results = []
+    for cell, cid in rows_by_cell.items():
+        dup = len(counts[cid]) > 1
+        label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        note = (f"{where}: Cell ID clash: cellId {cid} shared with {[x for x in counts[cid] if x != cell]}"
+                if dup else 'Unique.')
+        results.append({'rule': '#66U', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': 'MISMATCH' if dup else 'MATCH', 'note': note})
+    return results
+
+
 def check_pci_uniqueness(node_id, ciq_wb, e_name=None):
     """Rule #23 - PCI uniqueness within same band. PCI = PhysicalLayerCellIdGroup*3
     + physicalLayerSubCellId (verified against CIQ's own 'PCI' column); flags
