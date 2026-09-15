@@ -807,6 +807,55 @@ def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name):
     return results
 
 
+def check_gnb_identity_consistency(node_id, ciq_wb, g_name):
+    """gNBId/gNodeB Name must agree across Mixed Mode Info, gNB Info, and
+    5G Info — confirmed real CIQ column names: Mixed Mode Info and gNB
+    Info both use 'gNBId'/'gNodeB Name'; 5G Info uses 'gNBId'/'gNB Name'
+    (different column name for the name field, same value expected).
+    5G Info has one row per CELL, not per node, so its own rows are
+    collapsed to their distinct set of values first — a differing value
+    across 5G Info's own cells is itself part of the mismatch, not
+    silently picked from one row."""
+    if not g_name:
+        return []
+    g_upper = g_name.strip().upper()
+
+    mm_row = next((r for r in _rows(ciq_wb, 'Mixed Mode Info')
+                   if str(r.get('gNodeB Name') or '').strip().upper() == g_upper), None)
+    gnb_row = next((r for r in _rows(ciq_wb, 'gNB Info')
+                    if str(r.get('gNodeB Name') or '').strip().upper() == g_upper), None)
+    fiveg_rows = [r for r in _rows(ciq_wb, '5G Info')
+                  if str(r.get('gNB Name') or '').strip().upper() == g_upper]
+
+    def _val(v):
+        return str(v).strip() if v is not None else ''
+
+    sources = {}
+    if mm_row:
+        sources['Mixed Mode Info'] = (_val(mm_row.get('gNBId')), _val(mm_row.get('gNodeB Name')))
+    if gnb_row:
+        sources['gNB Info'] = (_val(gnb_row.get('gNBId')), _val(gnb_row.get('gNodeB Name')))
+    if fiveg_rows:
+        ids = {_val(r.get('gNBId')) for r in fiveg_rows}
+        names = {_val(r.get('gNB Name')) for r in fiveg_rows}
+        sources['5G Info'] = ('/'.join(sorted(ids)), '/'.join(sorted(names)))
+
+    if len(sources) < 2:
+        return [{'rule': '#52', 'node': node_id, 'cell': g_name, 'status': 'SKIPPED',
+                 'note': f"Only found in {', '.join(sources) or 'no tab'} - nothing to cross-check."}]
+
+    ids = {v[0] for v in sources.values() if v[0]}
+    names = {v[1] for v in sources.values() if v[1]}
+    mismatches = []
+    if len(ids) > 1:
+        mismatches.append('gNBId differs: ' + ', '.join(f'{k}={v[0]}' for k, v in sources.items()))
+    if len(names) > 1:
+        mismatches.append('gNodeB Name differs: ' + ', '.join(f'{k}={v[1]}' for k, v in sources.items()))
+    status = 'MISMATCH' if mismatches else 'MATCH'
+    note = '; '.join(mismatches) if mismatches else 'gNBId/gNodeB Name consistent across Mixed Mode Info, gNB Info, 5G Info.'
+    return [{'rule': '#52', 'node': node_id, 'cell': g_name, 'status': status, 'note': note}]
+
+
 def check_nrcelldu_nrcellcu_match(node_id, ciq_wb, g_name):
     """CIQ-internal consistency check (5G Info tab, no Pre/RFDS involved):
     NRCellDU and NRCellCU must be the same value for every cell — confirmed
