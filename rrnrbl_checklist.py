@@ -81,6 +81,29 @@ STATUS_META = {
 # MATCH / MISMATCH / SKIPPED / INFO - see checks_sector.py).
 # ══════════════════════════════════════════════════════════════════════
 
+def _agg_port_uniqueness(port_results):
+    """Rows 51/67 (Riport uniqueness): same as _agg, except the pass
+    message is 'No port clash, all RIports unique.' instead of the
+    generic 'N checked, no mismatch.' A mismatch still names exactly
+    which port is reused and by which cells, same as _agg's default
+    itemization."""
+    if not port_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in port_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if bad:
+        parts = []
+        for r in bad[:6]:
+            bits = [str(r.get(f)) for f in ("node", "cell", "note") if r.get(f)]
+            parts.append(": ".join(bits) if bits else str(r))
+        more = f" (+{len(bad)-6} more)" if len(bad) > 6 else ""
+        return "mismatch", "; ".join(parts) + more
+    if real:
+        return "match", "No port clash, all RIports unique."
+    skipped_notes = {r.get("note") for r in port_results if r.get("note")}
+    return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+
+
 def _agg(results_list, note_fields=("node", "cell", "note")):
     """Any MISMATCH -> mismatch. Only MATCH/INFO seen -> match. Nothing but
     SKIPPED (or empty) -> unknown (no data to judge, not a pass)."""
@@ -855,7 +878,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (48, "CIQ tabs checks", "5g info", "NR TAC - Existing sectors - ENM", "NR/Radio", lambda: _nsa_sa_status(results.get("nr_tac", []))),
         (49, "CIQ tabs checks", "5g info", " NR TAC   - For newly added Carriers-  NSA= 0 & SA =7 digit value", "NR/Radio", lambda: _nr_sa_tac_status(ciq_wb)),
         (50, "CIQ tabs checks", "5g info", "6472 / AIR-6449 - C Band / AIR6419 - DOD - Check for the SEF/FRU -- Check for the SEF/FRU", "Radio", lambda: _agg(results.get("sef_fru", []))),
-        (51, "CIQ tabs checks", "5g info", "Unique Port for 5G and LTE incase of Separate Radio - Ports and data ports ", "Radio", lambda: _agg(results.get("port_uniqueness", []))),
+        (51, "CIQ tabs checks", "5g info", "Unique Port for 5G and LTE incase of Separate Radio - Ports and data ports ", "Radio", lambda: _agg_port_uniqueness(results.get("port_uniqueness", []))),
 
         (52, "CIQ tabs checks", "gNB Info", "gNBId/gNodeB Name must should with  Mixed Mode Info tab ", "NR/Radio", lambda: _agg(identity)),
         (53, "CIQ tabs checks", "gNB Info", "DU type should be same as 5G Info tab - BBU Type", "NR/Radio", lambda: _agg(board_type)),
@@ -874,7 +897,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (64, "CIQ tabs checks", "eUtran Parameters Tab", "1)Compare Sectorid With Carrier Progression - sectorId / Carrier", "Radio", lambda: _agg(results.get("carrier_progression", []))),
         (65, "CIQ tabs checks", "eUtran Parameters Tab", "PhysicalLayerCellIdGroup and physicalLayerSubCellId should be unique - PCI", "Radio", lambda: _agg(results.get("pci_4g", []) + results.get("pci_5g", []))),
         (66, "CIQ tabs checks", "eUtran Parameters Tab", "Pre-existing node cellId must be same as ENM & N2E/NSB site CellId should be match with RFDS - Cellid", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
-        (67, "CIQ tabs checks", "eUtran Parameters Tab", "Riport should be unique", "Radio", lambda: _agg(results.get("port_uniqueness", []))),
+        (67, "CIQ tabs checks", "eUtran Parameters Tab", "Riport should be unique", "Radio", lambda: _agg_port_uniqueness(results.get("port_uniqueness", []))),
         (68, "CIQ tabs checks", "eUtran Parameters Tab", "tmaType / tmaConfiguration", "Radio", None),
         (69, "CIQ tabs checks", "eUtran Parameters Tab", "antenna model", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
         (70, "CIQ tabs checks", "eUtran Parameters Tab", " XMU Validation - Need to check with RFDS - XMU", "Radio", lambda: _xmu_vs_rfds_status(enb_rows_all, node_ids, rfds_pages)),
