@@ -56,7 +56,8 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
 
     results = {k: [] for k in (
         'sw_version', 'identity', 'primary_secondary', 'board_type', 'xmu',
-        'cells_vs_rfds', 'cell_id_vs_rfds', 'nrcelldu_nrcellcu', 'antenna_type_rfds', 'gnb_identity', 'gnb_du_type', 'params_4g', 'params_5g', 'arfcn_bw_5g', 'ssb_5g',
+        'cells_vs_rfds', 'cell_id_vs_rfds', 'nrcelldu_nrcellcu', 'antenna_type_rfds', 'gnb_identity', 'gnb_du_type', 'enb_identity',
+        'params_4g', 'rbb_tx_isdlonly_4g', 'params_5g', 'arfcn_bw_5g', 'ssb_5g',
         'pci_4g', 'pci_5g', 'radio_type', 'sector_swap', 'radio_sharing',
         'port_uniqueness', 'xmu_port_overlap', 'antenna', 'nbiot', 'nr_tac', 'tac', 'sef_fru',
         'dss', 'sector_id_4890', 'rfbranch_per_aug', 'ptp_matrix', 'losses_vs_antenna',
@@ -101,6 +102,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
         results['gnb_du_type'] += cs.check_gnb_du_type_vs_5g_bbu_type(node_id, ciq_wb, g_name, e_name)
         results['cell_id_vs_rfds'] += cs.check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name, node_logs, moved_map)
         results['params_4g'] += cs.check_rf_params_4g(node_id, log_text, ciq_wb, has_pre, retuned_cells, node_logs, moved_map)
+        results['rbb_tx_isdlonly_4g'] += cs.check_rbb_tx_isdlonly_4g(node_id, ciq_wb, e_name)
         import log_parser as lp
         parsed = lp.parse_log(log_text) if log_text else []
         results['params_5g'] += cs.check_rf_params_5g(node_id, parsed, log_text, ciq_wb, has_pre, retuned_cells, node_logs, moved_map)
