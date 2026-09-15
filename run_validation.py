@@ -96,7 +96,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
 
         results['cells_vs_rfds'] += cs.check_cells_vs_rfds(node_id, ciq_wb, rfds_pages, e_name, g_name)
         results['nrcelldu_nrcellcu'] += cs.check_nrcelldu_nrcellcu_match(node_id, ciq_wb, g_name)
-        results['antenna_type_rfds'] += cs.check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name)
+        results['antenna_type_rfds'] += cs.check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name, e_name)
         results['gnb_identity'] += cs.check_gnb_identity_consistency(node_id, ciq_wb, g_name)
         results['enb_identity'] += cs.check_enb_identity_consistency(node_id, ciq_wb, e_name)
         results['gnb_du_type'] += cs.check_gnb_du_type_vs_5g_bbu_type(node_id, ciq_wb, g_name, e_name)
