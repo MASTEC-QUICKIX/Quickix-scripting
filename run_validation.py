@@ -56,7 +56,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
 
     results = {k: [] for k in (
         'sw_version', 'identity', 'primary_secondary', 'board_type', 'xmu',
-        'cells_vs_rfds', 'cell_id_vs_rfds', 'nrcelldu_nrcellcu', 'params_4g', 'params_5g',
+        'cells_vs_rfds', 'cell_id_vs_rfds', 'nrcelldu_nrcellcu', 'params_4g', 'params_5g', 'arfcn_bw_5g',
         'pci_4g', 'pci_5g', 'radio_type', 'sector_swap', 'radio_sharing',
         'port_uniqueness', 'xmu_port_overlap', 'antenna', 'nbiot', 'nr_tac', 'tac', 'sef_fru',
         'dss', 'sector_id_4890', 'rfbranch_per_aug', 'ptp_matrix', 'losses_vs_antenna',
@@ -100,6 +100,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
         import log_parser as lp
         parsed = lp.parse_log(log_text) if log_text else []
         results['params_5g'] += cs.check_rf_params_5g(node_id, parsed, log_text, ciq_wb, has_pre, retuned_cells, node_logs, moved_map)
+        results['arfcn_bw_5g'] += cs.check_arfcn_bw_5g(node_id, parsed, log_text, ciq_wb, has_pre, node_logs, moved_map)
         results['pci_4g'] += cs.check_pci_uniqueness(node_id, ciq_wb, e_name)
         results['pci_5g'] += cs.check_nr_pci_uniqueness(node_id, ciq_wb, g_name)
         results['radio_type'] += cs.check_radio_type(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name, node_logs, moved_map)
