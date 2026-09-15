@@ -807,6 +807,46 @@ def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name):
     return results
 
 
+def check_gnb_du_type_vs_5g_bbu_type(node_id, ciq_wb, g_name, e_name=None):
+    """Board type must agree across gNB Info 'DU type', eNB Info 'DU type'
+    (same physical BBU, TMBB/MMBB pairing), and 5G Info 'BBU Type' —
+    confirmed real CIQ data, all read '6672' for the same node. Purely
+    internal CIQ cross-tab consistency, no Pre/EDP/RFDS involved. eNB Info
+    is only compared when e_name is given (a paired LTE identity exists
+    for this node) — a pure-5G/AAS-only node with no eNB Info row at all
+    correctly has nothing to cross-check there. 5G Info has one row per
+    cell, not per node — collapsed to its distinct set of values first, so
+    a cell that disagrees with its own tab's siblings is itself part of
+    the mismatch, not silently picked from one row."""
+    if not g_name:
+        return []
+    g_upper = g_name.strip().upper()
+    gnb_row = next((r for r in _rows(ciq_wb, 'gNB Info')
+                    if str(r.get('gNodeB Name') or '').strip().upper() == g_upper), None)
+    fiveg_rows = [r for r in _rows(ciq_wb, '5G Info')
+                  if str(r.get('gNB Name') or '').strip().upper() == g_upper]
+    if not gnb_row or not fiveg_rows:
+        return [{'rule': '#53', 'node': node_id, 'cell': g_name, 'status': 'SKIPPED',
+                 'note': 'gNB Info row or 5G Info rows not found for this node - nothing to cross-check.'}]
+
+    sources = {'gNB Info': str(gnb_row.get('DU type') or '').strip()}
+    fiveg_bbu_types = {str(r.get('BBU Type') or '').strip() for r in fiveg_rows}
+    sources['5G Info'] = '/'.join(sorted(fiveg_bbu_types))
+
+    if e_name:
+        e_upper = e_name.strip().upper()
+        enb_row = next((r for r in _rows(ciq_wb, 'eNB Info')
+                        if str(r.get('eNodeB Name') or '').strip().upper() == e_upper), None)
+        if enb_row:
+            sources['eNB Info'] = str(enb_row.get('DU type') or '').strip()
+
+    values = {v for v in sources.values() if v}
+    match = len(values) == 1 and len(fiveg_bbu_types) == 1
+    note = ('Board type consistent across ' + '/'.join(sources) + '.' if match else
+            '; '.join(f'{k}={v}' for k, v in sources.items()) + ' - do not all agree.')
+    return [{'rule': '#53', 'node': node_id, 'cell': g_name, 'status': 'MATCH' if match else 'MISMATCH', 'note': note}]
+
+
 def check_gnb_identity_consistency(node_id, ciq_wb, g_name):
     """gNBId/gNodeB Name must agree across Mixed Mode Info, gNB Info, and
     5G Info — confirmed real CIQ column names: Mixed Mode Info and gNB
