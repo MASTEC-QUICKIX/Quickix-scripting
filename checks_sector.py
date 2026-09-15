@@ -1150,6 +1150,36 @@ def check_arfcn_bw_5g(node_id, parsed, log_text, ciq_wb, has_pre_log, node_logs=
     return results
 
 
+def check_electrical_tilt_type(node_id, ciq_wb, e_name):
+    """Row 61: 'electricalAntennaTilt' must be stored as an integer, not a
+    character/string — confirmed real bug on a real site (FCL04120_7B_1
+    had '0' as a string while every sibling cell had a proper int like
+    50). Checked on the raw openpyxl value type directly (str vs int/
+    float), which is what actually distinguishes a text-formatted Excel
+    cell from a number-formatted one — not re-parsed from a string, since
+    a re-parse would accept '0' just as happily as 0 and miss the bug
+    entirely."""
+    if not e_name:
+        return []
+    results = []
+    for row in _rows(ciq_wb, 'eUtran Parameters'):
+        cell = row.get('EutranCellFDDId')
+        if not (cell and str(cell).startswith(e_name)):
+            continue
+        val = row.get('electricalAntennaTilt')
+        label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        if val is None:
+            continue
+        is_character = isinstance(val, str)
+        status = 'MISMATCH' if is_character else 'MATCH'
+        note = (f"{where}: electricalAntennaTilt='{val}' is stored as a character, not an integer."
+                if is_character else 'Confirmed integer.')
+        results.append({'rule': '#61', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': status, 'note': note})
+    return results
+
+
 def check_rbb_tx_isdlonly_4g(node_id, ciq_wb, e_name):
     """Row 58: LTE 'RBB type' vs CIQ's own 'noOfTxAntennas'/'noOfRxAntennas'
     and 'Radio Port' columns — CIQ-internal consistency, confirmed real
