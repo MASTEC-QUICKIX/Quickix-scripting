@@ -629,8 +629,10 @@ def _mme_region_status(ciq_wb):
 def _nr_sa_tac_status(ciq_wb):
     """NR_SA tab declares, per NODE, the exact nRTAC value expected if that
     node is SA-converted ('Node Name' + 'nrTAC' columns, confirmed real
-    CIQ structure). A node listed there must show that EXACT value across
-    its 5G Info cells; a node NOT listed there must show 0 (NSA)."""
+    CIQ structure). Checked at CELL level — each 5G Info row's own nRTAC
+    is compared individually against its node's expected value, not
+    collapsed into a per-node set first (a single divergent cell must be
+    named, not just inferred from the node showing more than one value)."""
     has_nr_sa = "NR_SA" in ciq_wb.sheetnames
     if not has_nr_sa:
         return "na", "No NR_SA tab in this CIQ — SA-carrier TAC rule does not apply."
@@ -640,33 +642,35 @@ def _nr_sa_tac_status(ciq_wb):
     sa_tac_by_node = {_norm(r.get("Node Name")).upper(): _norm(r.get("nrTAC"))
                       for r in cer.sheet_rows_as_dicts(ciq_wb["NR_SA"]) if _norm(r.get("Node Name"))}
 
-    node_tacs = {}
-    for r in cer.sheet_rows_as_dicts(ciq_wb["5G Info"]):
-        node = _norm(r.get("gNB Name")).upper()
-        if not node:
-            continue
-        node_tacs.setdefault(node, set()).add(_norm(r.get("nRTAC")))
-    if not node_tacs:
+    fiveg_rows = [r for r in cer.sheet_rows_as_dicts(ciq_wb["5G Info"]) if _norm(r.get("gNB Name"))]
+    if not fiveg_rows:
         return "unknown", "NR_SA tab present but no nRTAC values read from 5G Info."
 
-    bad, sa_lines, nsa_nodes = [], [], []
-    for node, tacs in node_tacs.items():
+    bad = []
+    node_tacs = {}
+    for r in fiveg_rows:
+        node = _norm(r.get("gNB Name")).upper()
+        cell = _norm(r.get("NRCellDU")) or node
+        tac = _norm(r.get("nRTAC"))
         expected = sa_tac_by_node.get(node)
         if expected is not None:
-            if tacs != {expected}:
-                bad.append(f"{node}: nRTAC {sorted(tacs)} does not match NR_SA value '{expected}'")
+            if tac != expected:
+                bad.append(f"{cell}: nRTAC='{tac}' does not match NR_SA value '{expected}' for {node}")
             else:
-                sa_lines.append(f"NR TAC: {expected}: {node}")
-        elif tacs != {"0"}:
-            bad.append(f"{node}: nRTAC {sorted(tacs)} expected 0 (not in NR_SA tab)")
+                node_tacs.setdefault(node, ("sa", expected))
         else:
-            nsa_nodes.append(node)
+            if tac != "0":
+                bad.append(f"{cell}: nRTAC='{tac}' expected 0 ({node} not in NR_SA tab)")
+            else:
+                node_tacs.setdefault(node, ("nsa", "0"))
 
     if bad:
         return "mismatch", "; ".join(bad[:6])
+    sa_lines = [f"NR TAC: {tac}: {node}" for node, (kind, tac) in node_tacs.items() if kind == "sa"]
+    nsa_nodes = sorted(node for node, (kind, _) in node_tacs.items() if kind == "nsa")
     lines = list(sa_lines)
     if nsa_nodes:
-        lines.append(f"NR TAC: 0: {', '.join(sorted(nsa_nodes))}")
+        lines.append(f"NR TAC: 0: {', '.join(nsa_nodes)}")
     return "match", " | ".join(lines) if lines else "No 5G nodes to check."
 
 
