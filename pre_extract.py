@@ -631,6 +631,20 @@ def parse_rbb_txrx(rbb_type):
     return f'{m.group(1)}x{m.group(2)}' if m else None
 
 
+def parse_rbb_link(rbb_type):
+    """RBB Type link count: the DIGIT right after the underscore (not the
+    trailing letter) is what determines Single vs Double link — '_1D' is
+    Single, '_2E' is Double, regardless of the letter, which is unrelated
+    to link count. Returns None if no '_<digit><letter>' suffix is found
+    at all, rather than guessing."""
+    if not rbb_type:
+        return None
+    m = re.search(r'_([12])[A-Za-z]', str(rbb_type))
+    if not m:
+        return None
+    return 'Single' if m.group(1) == '1' else 'Double'
+
+
 def node_id_from_log(text):
     """The node ID as it appears at the moshell prompt, e.g. 'SCL05020'."""
     m = re.search(r'^([A-Za-z0-9_]+)>\s', text, re.M)
