@@ -20,8 +20,12 @@ def _rows(ciq_wb, sheet_name):
 
 
 def check_radio_type(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name, node_logs=None, moved_map=None):
-    """Blueprint section 13 'Radio Type verification' (#6). Cells | Pre |
-    CIQ | RFDS | Match.
+    """RFDS vs CIQ only (confirmed scope — this function's only consumer is
+    the checklist's 'RFDS Checks' section, which is RFDS-vs-CIQ, not
+    Pre-vs-CIQ). Pre is still resolved and returned in each result's 'pre'
+    field for reference, but does NOT affect status/note — an earlier
+    version folded a Pre-vs-CIQ 'radio swap' comparison into this same
+    match/mismatch, which doesn't belong under an RFDS-scoped check.
 
     Pre is resolved via the full MO chain (confirmed):
         SectorCarrier -> fdd (EUtranCellFDD/NRCellDU)
@@ -60,17 +64,11 @@ def check_radio_type(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name, node
         rfds_rrh = cell_details.get(cell, {}).get('rrh', 'NOT CHECKED')
         pre_val = _pre_for(cell)
         rru_token = ciq_rru.split()[-1] if ciq_rru else ''
-        rfds_match = rfds_pages is None or (bool(rru_token) and rru_token in rfds_rrh)
-        pre_match = pre_val == 'NOT AVAILABLE' or pre_val == ciq_rru
-        match = rfds_match and pre_match
-        notes = []
-        if not rfds_match:
-            notes.append('RFDS does not confirm CIQ RRU type.')
-        if not pre_match:
-            notes.append(f'Radio swap indicated: Pre={pre_val} vs CIQ={ciq_rru}.')
-        results.append({'rule': '#6', 'node': node_id, 'cell': cell, 'pre': pre_val,
+        match = rfds_pages is None or (bool(rru_token) and rru_token in rfds_rrh)
+        label, _sector = band_label(cell)
+        results.append({'rule': '#6', 'node': node_id, 'cell': cell, 'pre': pre_val, 'label': label,
                          'ciq': ciq_rru, 'rfds': rfds_rrh, 'status': 'MATCH' if match else 'MISMATCH',
-                         'note': 'Confirmed.' if match else ' '.join(notes)})
+                         'note': 'Confirmed.' if match else 'RFDS does not confirm CIQ RRU type.'})
 
     for row in _rows(ciq_wb, '5G Info'):
         cell = row.get('NRCellDU')
@@ -82,17 +80,11 @@ def check_radio_type(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name, node
         rfds_rrh = cell_details.get(cell, {}).get('rrh', 'NOT CHECKED')
         pre_val = _pre_for(cell)
         rru_token = ciq_rru.split()[-1] if ciq_rru else ''
-        rfds_match = rfds_pages is None or (bool(rru_token) and rru_token in rfds_rrh)
-        pre_match = pre_val == 'NOT AVAILABLE' or pre_val == ciq_rru
-        match = rfds_match and pre_match
-        notes = []
-        if not rfds_match:
-            notes.append('RFDS does not confirm CIQ RRU type.')
-        if not pre_match:
-            notes.append(f'Radio swap indicated: Pre={pre_val} vs CIQ={ciq_rru}.')
-        results.append({'rule': '#6', 'node': node_id, 'cell': cell, 'pre': pre_val,
+        match = rfds_pages is None or (bool(rru_token) and rru_token in rfds_rrh)
+        label, _sector = band_label(cell)
+        results.append({'rule': '#6', 'node': node_id, 'cell': cell, 'pre': pre_val, 'label': label,
                          'ciq': ciq_rru, 'rfds': rfds_rrh, 'status': 'MATCH' if match else 'MISMATCH',
-                         'note': 'Confirmed.' if match else ' '.join(notes)})
+                         'note': 'Confirmed.' if match else 'RFDS does not confirm CIQ RRU type.'})
     return results
 
 
@@ -740,7 +732,13 @@ def check_rfds_nrcelldu(node_id, ciq_wb, rfds_pages):
 
 def check_cells_vs_rfds(node_id, ciq_wb, rfds_pages, e_name, g_name):
     """Blueprint section 8 'Cells verification' (#6, #18) - every CIQ cell
-    (LTE + 5G combined) checked for presence in RFDS. CIQ | RFDS | Match."""
+    (LTE + 5G combined) checked for presence in RFDS. CIQ | RFDS | Match.
+
+    Each result carries 'label' from band_labels.band_label() — confirmed
+    mapping: N77-band carrier suffix '_3' is DOD_BWE (Bandwidth Expansion),
+    a newly-added carrier that's genuinely expected to be absent from RFDS
+    until built. Used by the checklist to group these separately from a
+    real missing-cell finding rather than list each one individually."""
     if rfds_pages is None:
         return [{'rule': '#6/#18', 'node': node_id, 'cell': None, 'status': 'SKIPPED', 'note': 'No RFDS provided.'}]
     import rfds_extract as rf
@@ -750,7 +748,8 @@ def check_cells_vs_rfds(node_id, ciq_wb, rfds_pages, e_name, g_name):
         cell = row.get('EutranCellFDDId')
         if cell and e_name and str(cell).startswith(e_name):
             present = cell in rfds_cells
-            results.append({'rule': '#6/#18', 'node': node_id, 'cell': cell,
+            label, _sector = band_label(cell)
+            results.append({'rule': '#6/#18', 'node': node_id, 'cell': cell, 'label': label,
                              'ciq_cell': cell, 'rfds_cell': cell if present else 'NOT FOUND',
                              'status': 'MATCH' if present else 'MISMATCH',
                              'note': 'Match.' if present else 'Not found in RFDS.'})
@@ -758,7 +757,8 @@ def check_cells_vs_rfds(node_id, ciq_wb, rfds_pages, e_name, g_name):
         cell = row.get('NRCellDU')
         if cell and g_name and str(cell).startswith(g_name):
             present = cell in rfds_cells
-            results.append({'rule': '#6/#18', 'node': node_id, 'cell': cell,
+            label, _sector = band_label(cell)
+            results.append({'rule': '#6/#18', 'node': node_id, 'cell': cell, 'label': label,
                              'ciq_cell': cell, 'rfds_cell': cell if present else 'NOT FOUND',
                              'status': 'MATCH' if present else 'MISMATCH',
                              'note': 'Match.' if present else 'Not found in RFDS.'})
@@ -793,7 +793,8 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
         pre_id = (pre_lte.get(cell) or {}).get('cellId') or 'NA'
         rfds_rcn = cell_details[cell]['rcn']
         match = (ciq_id == rfds_rcn) and (pre_id in ('NA',) or pre_id == ciq_id)
-        results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell,
+        label, _sector = band_label(cell)
+        results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell, 'label': label,
                          'pre': pre_id, 'ciq': ciq_id, 'rfds_rcn': rfds_rcn,
                          'status': 'MATCH' if match else 'MISMATCH',
                          'note': 'Match.' if match else f'Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
@@ -812,7 +813,8 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
         pre_id = (pre_5g.get(cell) or {}).get('cellLocalId') or 'NA'
         rfds_rcn = cell_details[cell]['rcn']
         match = (ciq_id == rfds_rcn) and (pre_id in ('NA',) or pre_id == ciq_id)
-        results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell,
+        label, _sector = band_label(cell)
+        results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell, 'label': label,
                          'pre': pre_id, 'ciq': ciq_id, 'rfds_rcn': rfds_rcn,
                          'status': 'MATCH' if match else 'MISMATCH',
                          'note': 'Match.' if match else f'Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
