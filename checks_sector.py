@@ -884,6 +884,42 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
     return results
 
 
+def check_ssb_5g(node_id, parsed, log_text, ciq_wb, has_pre_log, node_logs=None, moved_map=None):
+    """Row 44 scope ONLY: ssbFrequency/ssbOffset/ssbDuration, Pre vs CIQ —
+    split out from check_rf_params_5g the same way check_arfcn_bw_5g was
+    for row 41. ssbOffset/ssbDuration were already extracted generically
+    by pre_extract's NRCellDU table parser but never surfaced in
+    extract_5g_sector_params()'s result dict until now. Mismatch note
+    shows band+sector and the actual Pre/CIQ values, not just field names
+    — grouping (via checklist's _group_bad_by_node_reason) collapses to
+    just the band name when every sector of that band fails, and to
+    '<band> (<sectors>)' when only some do."""
+    pre_5g = pe.extract_5g_sector_params(parsed, log_text) if (has_pre_log and log_text) else {}
+    if node_logs and moved_map:
+        pre_5g = pe.merge_moved_in_pre(pre_5g, node_logs, moved_map, pe.extract_5g_sector_params_from_text)
+    results = []
+    for row in _rows(ciq_wb, '5G Info'):
+        cell = row.get('NRCellDU')
+        if not cell:
+            continue
+        pre_vals = pre_5g.get(cell)
+        if not pre_vals:
+            continue
+        mismatched = []
+        for field in ('ssbFrequency', 'ssbOffset', 'ssbDuration'):
+            ciq_v = str(row.get(field, '')).strip()
+            pre_v = pre_vals.get(field) or 'NA'
+            if pre_v != 'NA' and pre_v != ciq_v:
+                mismatched.append(f'{field}: {pre_v}/{ciq_v}')
+        label, sector = band_label(cell)
+        status = 'MATCH' if not mismatched else 'MISMATCH'
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        note = 'Confirmed.' if not mismatched else f"{where}: " + '; '.join(mismatched)
+        results.append({'rule': '#44', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': status, 'note': note})
+    return results
+
+
 def check_arfcn_bw_5g(node_id, parsed, log_text, ciq_wb, has_pre_log, node_logs=None, moved_map=None):
     """Row 41 scope ONLY: arfcnDL/arfcnUL/bSChannelBwDL/bSChannelBwUL, Pre vs
     CIQ — split out from check_rf_params_5g's combined 5-field result
