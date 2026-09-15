@@ -152,6 +152,49 @@ def _group_bad_by_node_reason(bad, real, reason_of):
     return "; ".join(parts[:6]) + more
 
 
+def _agg_row47(cells_results, cell_id_results, radio_results, nrcelldu_results, antenna_results):
+    """Row 47: automates NRCellDU/NRCellCU (internal consistency),
+    cellLocalId, RRU Type, and Antenna Type against RFDS/CIQ — same
+    grouping as row 31 (_agg_cell_details). Electrical Tilt and
+    BeamDirection have NO RFDS extraction at all (that data lives on
+    RFDS's 'AntennaPositionDetails' page, which is row 32's own
+    still-unbuilt placeholder) — always flagged for manual verification
+    regardless of the automated portion's outcome, since this row can
+    never be a full pass on its own.
+
+    Status: a genuine automated MISMATCH stays 'mismatch' (red) with the
+    manual-verify note appended, not overridden — an automated failure is
+    still a failure. Only a clean automated pass becomes 'info' (blue):
+    partially checked, not a full match, since Tilt/BeamDirection were
+    never actually verified."""
+    all_results = cells_results + cell_id_results + radio_results + nrcelldu_results + antenna_results
+    manual_note = "Verify the Electrical Tilt, BeamDirection manually."
+    if not all_results:
+        return "manual", manual_note
+    real = [r for r in all_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if bad:
+        def _reason(r):
+            rule = r.get("rule")
+            if rule == "#6/#18":
+                return "not found in RFDS" if r.get("note") == "Not found in RFDS." else "found in RFDS but not in CIQ"
+            if rule == "#6/#24":
+                return "Cell ID mismatch"
+            if rule == "#6":
+                return "RRU type mismatch"
+            if rule == "#39":
+                return "NRCellDU/NRCellCU mismatch"
+            if rule == "#47":
+                return "Antenna Type mismatch"
+            return "mismatch"
+        return "mismatch", _group_bad_by_node_reason(bad, real, _reason) + " " + manual_note
+    if real:
+        return "info", f"{len(real)} checked, no mismatch. {manual_note}"
+    skipped_notes = {r.get("note") for r in all_results if r.get("note")}
+    base = "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+    return "manual", f"{base} {manual_note}"
+
+
 def _agg_cell_details(cells_results, cell_id_results, radio_results):
     """Row 31 ('CellDetails(Final) -- CellID / RCN / RRH'): same as _agg,
     except cells failing for the SAME reason on the SAME node are grouped
@@ -787,7 +830,9 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (44, "CIQ tabs checks", "5g info", "ssbFrequency /ssbOffset/ ssbDuration ", "NR/Radio", lambda: _agg_ssb_5g(results.get("ssb_5g", []))),
         (45, "CIQ tabs checks", "5g info", "NSA/SA", "NR/Radio", lambda: _nsa_sa_status(results.get("nr_tac", []))),
         (46, "CIQ tabs checks", "5g info", "Make sure  BBU Type should match with RFDS and CIQ - BBU Type", "NR/Radio", lambda: _agg(board_type)),
-        (47, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU/cellLocalId/RRU Type/ BeamDirection (Azimuth) /Antenna Type /Electrical Tilt must same as RFDS ", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
+        (47, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU/cellLocalId/RRU Type/ BeamDirection (Azimuth) /Antenna Type /Electrical Tilt must same as RFDS ", "Radio",
+         lambda: _agg_row47(results.get("cells_vs_rfds", []), results.get("cell_id_vs_rfds", []), results.get("radio_type", []),
+                             results.get("nrcelldu_nrcellcu", []), results.get("antenna_type_rfds", []))),
         (48, "CIQ tabs checks", "5g info", "NR TAC - Existing sectors - ENM", "NR/Radio", lambda: _agg(results.get("nr_tac", []))),
         (49, "CIQ tabs checks", "5g info", " NR TAC   - For newly added Carriers-  NSA= 0 & SA =7 digit value", "NR/Radio", lambda: _nr_sa_tac_status(ciq_wb)),
         (50, "CIQ tabs checks", "5g info", "6472 / AIR-6449 - C Band / AIR6419 - DOD - Check for the SEF/FRU -- Check for the SEF/FRU", "Radio", lambda: _agg(results.get("sef_fru", []))),
