@@ -1150,6 +1150,36 @@ def check_arfcn_bw_5g(node_id, parsed, log_text, ciq_wb, has_pre_log, node_logs=
     return results
 
 
+def check_rilink_vs_rbb_4g(node_id, log_text, ciq_wb, e_name, node_logs=None, moved_map=None):
+    """Row 63: Pre's actual RILink (Single/Double fiber) vs CIQ's RBB Type
+    link suffix ('_1'=Single, '_2'=Double — pe.parse_rbb_link), LTE side.
+    Same comparison check_sector_swap_config already does for standalone
+    5G cells; built separately here since that function is LTE-vs-EDP/
+    sector-config scoped, not this Pre-vs-CIQ RILink question."""
+    if not e_name:
+        return []
+    rilink = pe.extract_cell_to_rilink(log_text) if log_text else {}
+    if node_logs and moved_map:
+        rilink = pe.merge_moved_in_pre(rilink, node_logs, moved_map, pe.extract_cell_to_rilink)
+    results = []
+    for row in _rows(ciq_wb, 'eUtran Parameters'):
+        cell = row.get('EutranCellFDDId')
+        if not (cell and str(cell).startswith(e_name)):
+            continue
+        pre_ri = rilink.get(cell, 'NA')
+        rbb = row.get('RBB type')
+        ciq_ri = pe.parse_rbb_link(rbb)
+        label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        if pre_ri == 'NA' or ciq_ri is None:
+            continue
+        match = pre_ri == ciq_ri
+        note = 'Confirmed.' if match else f"{where}: RILink Pre={pre_ri} vs CIQ (RBB type {rbb})={ciq_ri}."
+        results.append({'rule': '#63', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'status': 'MATCH' if match else 'MISMATCH', 'note': note})
+    return results
+
+
 def check_electrical_tilt_type(node_id, ciq_wb, e_name):
     """Row 61: 'electricalAntennaTilt' must be stored as an integer, not a
     character/string — confirmed real bug on a real site (FCL04120_7B_1
