@@ -1581,8 +1581,8 @@ def check_pci_uniqueness(node_id, ciq_wb, e_name=None):
             continue
         pci = group * 3 + sub
         ciq_pci = str(row.get('PCI', '')).strip()
-        label, _ = band_label(cell)
-        by_band.setdefault(label, []).append({'cell': cell, 'group': group, 'sub': sub, 'pci': pci, 'ciq_pci': ciq_pci})
+        label, sector = band_label(cell)
+        by_band.setdefault(label, []).append({'cell': cell, 'group': group, 'sub': sub, 'pci': pci, 'ciq_pci': ciq_pci, 'sector': sector})
 
     for label, cells in by_band.items():
         pci_counts = {}
@@ -1592,14 +1592,15 @@ def check_pci_uniqueness(node_id, ciq_wb, e_name=None):
             dup = len(pci_counts[c['pci']]) > 1
             mismatch_calc = str(c['pci']) != c['ciq_pci']
             status = 'MISMATCH' if (dup or mismatch_calc) else 'MATCH'
+            where = f"{label or 'unknown band'} {c['sector'] or 'unknown sector'}"
             notes = []
             if dup:
-                notes.append(f"PCI {c['pci']} shared with {[x for x in pci_counts[c['pci']] if x != c['cell']]}")
+                notes.append(f"PCI clash: PCI {c['pci']} shared with {[x for x in pci_counts[c['pci']] if x != c['cell']]}")
             if mismatch_calc:
                 notes.append(f"Computed PCI {c['pci']} != CIQ PCI {c['ciq_pci']}")
-            results.append({'rule': '#23', 'node': node_id, 'cell': c['cell'],
+            results.append({'rule': '#23', 'node': node_id, 'cell': c['cell'], 'label': label, 'sector': c['sector'],
                              'group': c['group'], 'sub': c['sub'], 'pci': c['pci'],
-                             'status': status, 'note': '; '.join(notes) if notes else 'Unique.'})
+                             'status': status, 'note': f"{where}: " + '; '.join(notes) if notes else 'Unique.'})
     return results
 
 
@@ -1619,8 +1620,8 @@ def check_nr_pci_uniqueness(node_id, ciq_wb, g_name=None):
         nrpci = row.get('nRPCI')
         if nrpci is None or str(nrpci).strip() == '':
             continue
-        label, _ = band_label(cell)
-        by_band.setdefault(label, []).append({'cell': cell, 'nrpci': str(nrpci).strip()})
+        label, sector = band_label(cell)
+        by_band.setdefault(label, []).append({'cell': cell, 'nrpci': str(nrpci).strip(), 'sector': sector})
 
     for label, cells in by_band.items():
         counts = {}
@@ -1628,9 +1629,10 @@ def check_nr_pci_uniqueness(node_id, ciq_wb, g_name=None):
             counts.setdefault(c['nrpci'], []).append(c['cell'])
         for c in cells:
             dup = len(counts[c['nrpci']]) > 1
-            results.append({'rule': '#23', 'node': node_id, 'cell': c['cell'], 'nrpci': c['nrpci'],
+            where = f"{label or 'unknown band'} {c['sector'] or 'unknown sector'}"
+            results.append({'rule': '#23', 'node': node_id, 'cell': c['cell'], 'label': label, 'sector': c['sector'], 'nrpci': c['nrpci'],
                              'status': 'MISMATCH' if dup else 'MATCH',
-                             'note': f"nRPCI {c['nrpci']} shared with {[x for x in counts[c['nrpci']] if x != c['cell']]}" if dup else 'Unique.'})
+                             'note': f"{where}: PCI clash: nRPCI {c['nrpci']} shared with {[x for x in counts[c['nrpci']] if x != c['cell']]}" if dup else 'Unique.'})
     return results
 
 
