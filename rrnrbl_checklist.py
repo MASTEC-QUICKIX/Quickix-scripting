@@ -1044,7 +1044,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (46, "CIQ tabs checks", "5g info", "Make sure  BBU Type should match with RFDS and CIQ - BBU Type", "NR/Radio", lambda: _agg(board_type)),
         (47, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU/cellLocalId/RRU Type/ BeamDirection (Azimuth) /Antenna Type /Electrical Tilt must same as RFDS ", "Radio",
          lambda: _agg_row47(results.get("cells_vs_rfds", []), results.get("cell_id_vs_rfds", []), results.get("radio_type", []),
-                             results.get("nrcelldu_nrcellcu", []), results.get("antenna_type_rfds", []))),
+                             results.get("nrcelldu_nrcellcu", []), [r for r in results.get("antenna_type_rfds", []) if r.get("rule") == "#47"])),
         (48, "CIQ tabs checks", "5g info", "NR TAC - Existing sectors - ENM", "NR/Radio", lambda: _nsa_sa_status(results.get("nr_tac", []))),
         (49, "CIQ tabs checks", "5g info", " NR TAC   - For newly added Carriers-  NSA= 0 & SA =7 digit value", "NR/Radio", lambda: _nr_sa_tac_status(ciq_wb)),
         (50, "CIQ tabs checks", "5g info", "6472 / AIR-6449 - C Band / AIR6419 - DOD - Check for the SEF/FRU -- Check for the SEF/FRU", "Radio", lambda: _agg(results.get("sef_fru", []))),
@@ -1071,7 +1071,8 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
          lambda: _agg_row66(results.get("cell_id_vs_rfds", []), results.get("cellid_uniqueness_4g", []))),
         (67, "CIQ tabs checks", "eUtran Parameters Tab", "Riport should be unique", "Radio", lambda: _agg_port_uniqueness(results.get("port_uniqueness", []))),
         (68, "CIQ tabs checks", "eUtran Parameters Tab", "tmaType / tmaConfiguration", "Radio", None),
-        (69, "CIQ tabs checks", "eUtran Parameters Tab", "antenna model", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
+        (69, "CIQ tabs checks", "eUtran Parameters Tab", "antenna model", "Radio",
+         lambda: _agg([r for r in results.get("antenna_type_rfds", []) if r.get("rule") == "#69"])),
         (70, "CIQ tabs checks", "eUtran Parameters Tab", " XMU Validation - Need to check with RFDS - XMU", "Radio", lambda: _xmu_vs_rfds_status(enb_rows_all, node_ids, rfds_pages)),
         (71, "CIQ tabs checks", "eUtran Parameters Tab", "ENM Validation - Need to check with site locator or ENM sheet (B2E) - ENM", "Radio", None),
 
