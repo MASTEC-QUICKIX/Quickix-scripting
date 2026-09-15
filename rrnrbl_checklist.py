@@ -218,6 +218,24 @@ def _agg_row47(cells_results, cell_id_results, radio_results, nrcelldu_results, 
     return "manual", f"{base} {manual_note}"
 
 
+def _agg_params_4g(params_results):
+    """Row 57 ('earfcnDl/dlChannelBandwidth ENM vs CIQ' — actually covers
+    all four LTE fields check_rf_params_4g checks: earfcnDl/earfcnUl/
+    dlChannelBandwidth/ulChannelBandwidth). Same grouping treatment as
+    the 5G rows — whole-band collapses to just the band name, partial
+    names the specific sectors; a lone mismatch keeps its full detail."""
+    if not params_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in params_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if not bad:
+        if real:
+            return "match", f"{len(real)} checked, no mismatch."
+        skipped_notes = {r.get("note") for r in params_results if r.get("note")}
+        return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+    return "mismatch", _group_bad_by_node_reason(bad, real, lambda r: "earfcn/bandwidth mismatch")
+
+
 def _agg_cell_details(cells_results, cell_id_results, radio_results):
     """Row 31 ('CellDetails(Final) -- CellID / RCN / RRH'): same as _agg,
     except cells failing for the SAME reason on the SAME node are grouped
@@ -887,7 +905,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (55, "CIQ tabs checks", "eNB Info", "BBU Type should match with RFDS - BBU Type", "Radio", lambda: _agg(board_type)),
         (56, "CIQ tabs checks", "eNB Info", "TAC Value", "NR/Radio", lambda: _agg(results.get("tac", []))),
 
-        (57, "CIQ tabs checks", "eUtran Parameters Tab", "earfcnDl/ dlChannelBandwidth ENM vs CIQ", "NR/Radio", lambda: _agg(results.get("params_4g", []))),
+        (57, "CIQ tabs checks", "eUtran Parameters Tab", "earfcnDl/ dlChannelBandwidth ENM vs CIQ", "NR/Radio", lambda: _agg_params_4g(results.get("params_4g", []))),
         (58, "CIQ tabs checks", "eUtran Parameters Tab", "RBB type/ noOfTx/noOfRx\nIdentify  ISDLONLY carrier", "NR/Radio", lambda: _agg(results.get("params_4g", []))),
         (59, "CIQ tabs checks", "eUtran Parameters Tab", "cellId ENM vs CIQ \nIdentify cellid change SOW", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
         (60, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection should match with RFDS - EutranCell", "Radio", lambda: _agg(results.get("cells_vs_rfds", []))),
