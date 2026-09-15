@@ -81,6 +81,29 @@ STATUS_META = {
 # MATCH / MISMATCH / SKIPPED / INFO - see checks_sector.py).
 # ══════════════════════════════════════════════════════════════════════
 
+def _agg_carrier_progression(carrier_results):
+    """Row 64: same as _agg, except the pass message is
+    check_carrier_progression's own 'Each carrier maps to a single
+    band.' instead of the generic 'N checked, no mismatch.' — the
+    function runs once per node and returns one lone MATCH row when
+    clean, so _agg's count (number of nodes, not cells) was misleading."""
+    if not carrier_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in carrier_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if bad:
+        parts = []
+        for r in bad[:6]:
+            bits = [str(r.get(f)) for f in ("node", "cell", "note") if r.get(f)]
+            parts.append(": ".join(bits) if bits else str(r))
+        more = f" (+{len(bad)-6} more)" if len(bad) > 6 else ""
+        return "mismatch", "; ".join(parts) + more
+    if real:
+        return "match", "Each carrier maps to a single band."
+    skipped_notes = {r.get("note") for r in carrier_results if r.get("note")}
+    return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
+
+
 def _agg_port_uniqueness(port_results):
     """Rows 51/67 (Riport uniqueness): same as _agg, except the pass
     message is 'No port clash, all RIports unique.' instead of the
@@ -1018,7 +1041,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (62, "CIQ tabs checks", "eUtran Parameters Tab", "configuredOutputPower depends on RRU type (Ericsson 4490, 4890, or 4472 radios (e.g., NSB or Allagi projects, New Carrier Adds, Radio Swaps) will be Configured with maximum allowed power of 160W.) - configuredOutputPower", "Radio", None),
         (63, "CIQ tabs checks", "eUtran Parameters Tab", "TxRx / RBB Type Need to be checked with - Single / Double RILink - RRU type & RBB type", "Radio",
          lambda: _agg_row63(results.get("rbb_tx_isdlonly_4g", []), results.get("rilink_vs_rbb_4g", []))),
-        (64, "CIQ tabs checks", "eUtran Parameters Tab", "1)Compare Sectorid With Carrier Progression - sectorId / Carrier", "Radio", lambda: _agg(results.get("carrier_progression", []))),
+        (64, "CIQ tabs checks", "eUtran Parameters Tab", "1)Compare Sectorid With Carrier Progression - sectorId / Carrier", "Radio", lambda: _agg_carrier_progression(results.get("carrier_progression", []))),
         (65, "CIQ tabs checks", "eUtran Parameters Tab", "PhysicalLayerCellIdGroup and physicalLayerSubCellId should be unique - PCI", "Radio", lambda: _agg(results.get("pci_4g", []) + results.get("pci_5g", []))),
         (66, "CIQ tabs checks", "eUtran Parameters Tab", "Pre-existing node cellId must be same as ENM & N2E/NSB site CellId should be match with RFDS - Cellid", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
         (67, "CIQ tabs checks", "eUtran Parameters Tab", "Riport should be unique", "Radio", lambda: _agg_port_uniqueness(results.get("port_uniqueness", []))),
