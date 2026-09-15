@@ -122,7 +122,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
         results['dss'] += cs.check_dss_pre_existing(node_id, log_text, ciq_wb)
         results['sector_id_4890'] += cs.check_sector_id_4890(node_id, ciq_wb, e_name)
         results['rfbranch_per_aug'] += cs.check_rfbranch_per_aug(node_id, log_text)
-        results['losses_vs_antenna'] += cs.check_losses_vs_antenna_sectors(node_id, ciq_wb, e_name)
+        results['losses_vs_antenna'] += cs.check_losses_vs_antenna_sectors(node_id, ciq_wb, e_name, g_name)
         results['tilt'] += cs.check_tilt_integer(node_id, ciq_wb, e_name, g_name)
         results['carrier_progression'] += cs.check_carrier_progression(node_id, ciq_wb, e_name, g_name)
         # CIQ-only checks that existed in checks_sector.py but were
