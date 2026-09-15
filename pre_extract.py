@@ -901,6 +901,8 @@ def extract_5g_sector_params(parsed, text):
     for cell, vals in du_rows.items():
         result.setdefault(cell, {}).update({
             'ssbFrequency': vals.get('ssbFrequency'),
+            'ssbOffset': vals.get('ssbOffset'),
+            'ssbDuration': vals.get('ssbDuration'),
             'cellLocalId': vals.get('cellLocalId'),
         })
     # nRTAC comes from the cleaner NRCellCU table (see extract_nr_tac)
