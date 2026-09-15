@@ -865,6 +865,36 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
     return results
 
 
+def check_arfcn_bw_5g(node_id, parsed, log_text, ciq_wb, has_pre_log, node_logs=None, moved_map=None):
+    """Row 41 scope ONLY: arfcnDL/arfcnUL/bSChannelBwDL/bSChannelBwUL, Pre vs
+    CIQ — split out from check_rf_params_5g's combined 5-field result
+    (which also folds in ssbFrequency, row 44's own topic) because sharing
+    one result list made rows 41/42/44 all show identical status/notes
+    despite different titled scopes. Mismatch note shows the actual
+    Pre/CIQ values per field, not just which field's name mismatched."""
+    pre_5g = pe.extract_5g_sector_params(parsed, log_text) if (has_pre_log and log_text) else {}
+    if node_logs and moved_map:
+        pre_5g = pe.merge_moved_in_pre(pre_5g, node_logs, moved_map, pe.extract_5g_sector_params_from_text)
+    results = []
+    for row in _rows(ciq_wb, '5G Info'):
+        cell = row.get('NRCellDU')
+        if not cell:
+            continue
+        pre_vals = pre_5g.get(cell)
+        if not pre_vals:
+            continue
+        mismatched = []
+        for field in ('arfcnDL', 'arfcnUL', 'bSChannelBwDL', 'bSChannelBwUL'):
+            ciq_v = str(row.get(field, '')).strip()
+            pre_v = pre_vals.get(field) or 'NA'
+            if pre_v != 'NA' and pre_v != ciq_v:
+                mismatched.append(f'{field}: {pre_v}/{ciq_v}')
+        status = 'MATCH' if not mismatched else 'MISMATCH'
+        note = 'Confirmed.' if not mismatched else '; '.join(mismatched)
+        results.append({'rule': '#41', 'node': node_id, 'cell': cell, 'status': status, 'note': note})
+    return results
+
+
 def check_rf_params_4g(node_id, log_text, ciq_wb, has_pre_log, retuned_cells=None, node_logs=None, moved_map=None):
     """Blueprint section 10 'Parameters Verification - 4G' (#19). One row
     per cell, each field shown as a single 'Pre | CIQ' string per the
