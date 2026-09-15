@@ -250,19 +250,24 @@ def check_sector_swap_config(node_id, log_text, ciq_wb, e_name, g_name=None, nod
             if not (cell and str(cell).startswith(g_name)) or cell in colo_lte_5g:
                 continue
             rbb = row.get('RBB Type')
-            ciq_txrx = pe.parse_rbb_txrx(rbb) or 'NOT FOUND'
-            ciq_ri = 'Double' if '_1D' in str(rbb or '') else ('Single' if '_1S' in str(rbb or '') else 'NOT FOUND')
+            ciq_txrx = pe.parse_rbb_txrx(rbb)
+            ciq_ri = pe.parse_rbb_link(rbb)
             pre_ri = rilink.get(cell, 'NA')
             cfg5g = fiveg_config.get(cell)
             pre_txrx = f"{cfg5g['tx']}x{cfg5g['rx']}" if cfg5g else 'NOT AVAILABLE'
             mismatches = []
-            if pre_ri != 'NA' and ciq_ri != 'NOT FOUND' and pre_ri != ciq_ri:
-                mismatches.append(f'RILink Pre={pre_ri} vs CIQ={ciq_ri}')
-            if pre_txrx != 'NOT AVAILABLE' and ciq_txrx != 'NOT FOUND' and pre_txrx != ciq_txrx:
-                mismatches.append(f'TX/RX Pre={pre_txrx} vs CIQ={ciq_txrx} (RBB Type {rbb})')
-            results.append({'rule': '#21/#22/#32', 'kind': '5g', 'node': node_id, 'cell': cell,
+            if ciq_txrx is None or ciq_ri is None:
+                mismatches.append(f"RBB Type '{rbb}' does not match the expected RBB<TX><RX>_<link><letter> "
+                                   f"pattern — cannot validate TX/RX or link count.")
+            else:
+                if pre_ri != 'NA' and pre_ri != ciq_ri:
+                    mismatches.append(f'RILink Pre={pre_ri} vs CIQ={ciq_ri}')
+                if pre_txrx != 'NOT AVAILABLE' and pre_txrx != ciq_txrx:
+                    mismatches.append(f'TX/RX Pre={pre_txrx} vs CIQ={ciq_txrx} (RBB Type {rbb})')
+            label, sector = band_label(cell)
+            results.append({'rule': '#21/#22/#32', 'kind': '5g', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
                              'sec_id': 'NA', 'pre_sec_id': 'NA',
-                             'pre_txrx': pre_txrx, 'ciq_txrx': ciq_txrx,
+                             'pre_txrx': pre_txrx, 'ciq_txrx': ciq_txrx or 'NOT FOUND',
                              'pre_power': 'NA', 'ciq_power': str(row.get('configuredMaxTxPower', '')).strip(),
                              'status': 'MISMATCH' if mismatches else 'MATCH',
                              'note': '; '.join(mismatches) if mismatches else 'RBB Type/RILink/TX-RX confirmed (standalone 5G radio).'})
