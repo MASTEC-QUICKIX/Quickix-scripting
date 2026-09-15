@@ -805,7 +805,14 @@ def check_cells_vs_rfds(node_id, ciq_wb, rfds_pages, e_name, g_name):
 def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name, node_logs=None, moved_map=None):
     """Blueprint section 9 'Cell ID verification' (#6, #24) - Cells | Pre |
     CIQ [cellId/cellLocalId] | RFDS [RCN] | Match, LTE + 5G combined. If a
-    cell is newly adding, Pre shows 'NA' per the blueprint's own example."""
+    cell is newly adding, Pre shows 'NA' per the blueprint's own example.
+
+    Pass/fail is Pre vs CIQ ONLY (confirmed) — RFDS's RCN is shown in the
+    note for reference on every result, match or mismatch, but does NOT
+    affect status. An earlier version required RFDS to agree too, which
+    conflated two different questions (does CIQ match what's already
+    built (Pre)? vs does CIQ match what RFDS's design record says?) into
+    one pass/fail."""
     results = []
     cell_details = {}
     if rfds_pages is not None:
@@ -829,12 +836,12 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
         ciq_id = str(row.get('cellId', '')).strip()
         pre_id = (pre_lte.get(cell) or {}).get('cellId') or 'NA'
         rfds_rcn = cell_details[cell]['rcn']
-        match = (ciq_id == rfds_rcn) and (pre_id in ('NA',) or pre_id == ciq_id)
+        match = pre_id in ('NA',) or pre_id == ciq_id  # Pre vs CIQ is the pass/fail; RFDS shown for reference only
         label, sector = band_label(cell)
         results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
                          'pre': pre_id, 'ciq': ciq_id, 'rfds_rcn': rfds_rcn,
                          'status': 'MATCH' if match else 'MISMATCH',
-                         'note': 'Match.' if match else f'Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
+                         'note': f'Match. (RFDS RCN={rfds_rcn})' if match else f'Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
 
     parsed = __import__('log_parser').parse_log(log_text) if log_text else []
     pre_5g = pe.extract_5g_sector_params(parsed, log_text) if log_text else {}
@@ -849,12 +856,12 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
         ciq_id = str(row.get('cellLocalId', '')).strip()
         pre_id = (pre_5g.get(cell) or {}).get('cellLocalId') or 'NA'
         rfds_rcn = cell_details[cell]['rcn']
-        match = (ciq_id == rfds_rcn) and (pre_id in ('NA',) or pre_id == ciq_id)
+        match = pre_id in ('NA',) or pre_id == ciq_id  # Pre vs CIQ is the pass/fail; RFDS shown for reference only
         label, sector = band_label(cell)
         results.append({'rule': '#6/#24', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
                          'pre': pre_id, 'ciq': ciq_id, 'rfds_rcn': rfds_rcn,
                          'status': 'MATCH' if match else 'MISMATCH',
-                         'note': 'Match.' if match else f'Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
+                         'note': f'Match. (RFDS RCN={rfds_rcn})' if match else f'Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
     return results
 
 
