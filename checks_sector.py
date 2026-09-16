@@ -503,26 +503,21 @@ def check_port_uniqueness(node_id, ciq_wb):
                     found.add(str(v).strip())
         return found
 
-    # cell-name prefix -> that node's XMU ports
+    # cell-name prefix -> that node's XMU ports. On a TMBB/MMBB node eNB
+    # Info's XMU and gNB Info's XMU describe the SAME physical XMU unit
+    # from the 4G/5G side respectively - identical ports in both is the
+    # expected shape, not a clash; only a genuine disagreement (both
+    # declared, different ports) is a real problem.
     xmu_ports_by_prefix = {}
-    # A node's eNB Info XMU and gNB Info XMU are two SEPARATE physical XMU
-    # units (TMBB/MMBB) - the union below is right for "does a sector reuse
-    # an XMU port", but taking the union ALSO silently erases the case
-    # where eNB Info's own declared port and gNB Info's own declared port
-    # are literally the same letter, i.e. the two physical XMUs on this one
-    # node claim the same port - that's a conflict in its own right and
-    # never showed up anywhere before (confirmed real case: both declared
-    # '1st XMU'='YES' with ports K/L/M on the SAME node).
-    xmu_self_overlap = {}
+    xmu_disagreement = {}
     for mm in mm_rows:
         e_name = str(mm.get('eNodeB Name') or '').strip()
         g_name = str(mm.get('gNodeB Name') or '').strip()
         enb_ports = _ports_from(enb_by_name.get(e_name))
         gnb_ports = _ports_from(gnb_by_name.get(g_name))
         node_ports = enb_ports | gnb_ports
-        overlap = enb_ports & gnb_ports
-        if overlap:
-            xmu_self_overlap[e_name or g_name] = overlap
+        if enb_ports and gnb_ports and enb_ports != gnb_ports:
+            xmu_disagreement[e_name or g_name] = (enb_ports, gnb_ports)
         if not node_ports:
             continue
         for prefix in (e_name, g_name):
@@ -618,10 +613,10 @@ def check_port_uniqueness(node_id, ciq_wb):
             results.append({'rule': '#11/#26/#27', 'node': node_id, 'cell': cell, 'status': status,
                              'bbu': bbu, 'port': port, 'port2': _pl[0] if _pl else None, 'note': note})
 
-    for node_prefix, overlap in xmu_self_overlap.items():
+    for node_prefix, (enb_p, gnb_p) in xmu_disagreement.items():
         results.append({'rule': '#11/#26/#27', 'node': node_id, 'cell': node_prefix, 'status': 'MISMATCH',
-                         'bbu': 'XMU', 'port': ', '.join(sorted(overlap)), 'port2': None,
-                         'note': f"eNB Info's XMU and gNB Info's XMU both declare port(s) {sorted(overlap)} on {node_prefix} - two separate physical XMUs cannot share a port."})
+                         'bbu': 'XMU', 'port': ', '.join(sorted(enb_p ^ gnb_p)), 'port2': None,
+                         'note': f"eNB Info's XMU ports ({sorted(enb_p)}) and gNB Info's XMU ports ({sorted(gnb_p)}) on {node_prefix} should describe the same physical XMU but disagree."})
 
     return results
 
@@ -1512,13 +1507,13 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_na
             port_to_cells.setdefault(p, []).append(c)
 
     # Rule #2: ports this node's own 1st/2nd XMU declares are reserved
-    # outright, regardless of Co-Located Technology Cell. eNB Info's XMU
-    # and gNB Info's XMU are two SEPARATE physical XMU units - unioning
-    # them (as below, for the port-reservation check) is right for "does a
-    # cell reuse an XMU port", but on its own it silently loses the case
-    # where the two units claim the SAME port letter as each other, which
-    # is its own real conflict (confirmed real case: both declared '1st
-    # XMU'='YES' with ports K/L/M on the same node) - flagged separately.
+    # outright, regardless of Co-Located Technology Cell. On a TMBB/MMBB
+    # node eNB Info's XMU and gNB Info's XMU describe the SAME physical
+    # XMU unit from the 4G side and the 5G side respectively - identical
+    # ports declared in both is the EXPECTED, correct shape (confirmed),
+    # not a clash. Only a genuine DISAGREEMENT between the two sides (both
+    # declared 'YES' but with different ports - inconsistent data entry
+    # for what should be one shared physical fact) is a real problem.
     enb_xmu, gnb_xmu = set(), set()
     for row, bucket in ((enb_row, 'enb_xmu'), (gnb_row, 'gnb_xmu')):
         if row is None:
@@ -1532,13 +1527,13 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_na
                 if v and v.upper() not in ("", "N/A", "NA", "NOT USED"):
                     target.add(v.upper())
     xmu_ports = enb_xmu | gnb_xmu
-    xmu_self_overlap = enb_xmu & gnb_xmu
+    xmu_disagreement = (enb_xmu ^ gnb_xmu) if (enb_xmu and gnb_xmu) else set()
 
     out = []
-    if xmu_self_overlap:
+    if xmu_disagreement:
         out.append({"rule": "#67", "node": node_id, "cell": node_id, "status": "MISMATCH",
-                    "note": f"eNB Info's XMU and gNB Info's XMU both declare port(s) {sorted(xmu_self_overlap)} "
-                            f"- two separate physical XMUs cannot share a port."})
+                    "note": f"eNB Info's XMU ports ({sorted(enb_xmu) or 'none'}) and gNB Info's XMU ports "
+                            f"({sorted(gnb_xmu) or 'none'}) should describe the same physical XMU but disagree."})
     for port, group in port_to_cells.items():
         if port in xmu_ports:
             out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MISMATCH",
@@ -1616,7 +1611,10 @@ def check_xmu_port_overlap(node_id, enb_row, gnb_row, ciq_wb):
     if not declared:
         return []
 
-    self_overlap = enb_ports & gnb_ports
+    # eNB Info's XMU and gNB Info's XMU describe the SAME physical XMU on
+    # a TMBB/MMBB node - identical ports in both is expected, not a clash;
+    # only a genuine disagreement between the two is a real problem.
+    xmu_disagreement = (enb_ports ^ gnb_ports) if (enb_ports and gnb_ports) else set()
 
     # Only this node's own cells can conflict with this node's XMU ports -
     # a sector on a different physical node uses different hardware.
@@ -1653,10 +1651,10 @@ def check_xmu_port_overlap(node_id, enb_row, gnb_row, ciq_wb):
             if v is not None and str(v).strip().upper() not in ('', 'N/A', 'NOT USED') and str(v).strip() in xmu_ports:
                 used_elsewhere.add(str(v).strip())
 
-    unique = not used_elsewhere and not self_overlap
+    unique = not used_elsewhere and not xmu_disagreement
     note_parts = []
-    if self_overlap:
-        note_parts.append(f"eNB Info XMU and gNB Info XMU both declare port(s) {sorted(self_overlap)} - two separate physical XMUs cannot share a port.")
+    if xmu_disagreement:
+        note_parts.append(f"eNB Info XMU ports ({sorted(enb_ports)}) and gNB Info XMU ports ({sorted(gnb_ports)}) should describe the same physical XMU but disagree.")
     if used_elsewhere:
         note_parts.append(f'XMU ports reused elsewhere: {sorted(used_elsewhere)}')
     return [{'rule': '#11/#25', 'node': node_id, 'cell': node_id,
