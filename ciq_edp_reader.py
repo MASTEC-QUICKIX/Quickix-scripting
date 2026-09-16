@@ -192,7 +192,7 @@ def edp_discover_secondary(edp_rows, primary_id):
     return None
 
 
-def resolve_g_name(ciq_wb, mm_row, e_name=None, rfds_pages=None, rfds_bytes=None):
+def resolve_g_name(ciq_wb, mm_row, e_name=None, rfds_pages=None, rfds_bytes=None, mm_rows_all=None):
     """Best-effort recovery of a node's gNodeB Name when Mixed Mode Info's
     own field is blank. This matters because EVERY 5G check in
     checks_sector.py (cells_vs_rfds, radio_type, sector_swap, nr_tac,
@@ -215,6 +215,21 @@ def resolve_g_name(ciq_wb, mm_row, e_name=None, rfds_pages=None, rfds_bytes=None
          RFDS group, but only if THAT name is one CIQ's own gNB Info/5G
          Info tabs recognise as a real gNodeB identity (so a stray LTE-only
          secondary in the RFDS group is never mistaken for a 5G one).
+      3. Sole-candidate elimination — only when mm_rows_all is given AND
+         this row's own BBU Mode is TMBB/MMBB (a dual-identity node, so a
+         5G identity is genuinely expected; SMBB is single-identity by
+         definition and must never be guessed at here). If gNB Info/5G
+         Info together name exactly ONE gNodeB identity across the whole
+         CIQ that no OTHER Mixed Mode Info row has already claimed with
+         its own real gNodeB Name, it can only belong to this node.
+         Confirmed real case both gNBId and RFDS grouping failed on:
+         gNodeB Name AND gNBId both blanked, RFDS is a genuine PDF but its
+         table extraction drops this exact wrapped-CommonName row (a known,
+         separately-documented limitation) — gNB Info/5G Info still had
+         the one and only gNodeB identity in the file, unclaimed by
+         anything else. Two or more simultaneously-unresolved TMBB/MMBB
+         rows with 2+ unclaimed candidates is genuinely ambiguous and is
+         correctly left unresolved rather than guessed.
 
     Returns None if genuinely unrecoverable — a real single-identity (4G-
     only) node, or no signal survives anywhere in this CIQ/RFDS."""
@@ -254,6 +269,15 @@ def resolve_g_name(ciq_wb, mm_row, e_name=None, rfds_pages=None, rfds_bytes=None
                 for cand in grp:
                     if cand.upper() != str(e_name).strip().upper() and cand.upper() in {n.upper() for n in known_gnb_names}:
                         return cand
+
+    bbu_mode = str((mm_row or {}).get('BBU Mode') or '').strip().upper()
+    if mm_rows_all is not None and bbu_mode in ('TMBB', 'MMBB') and known_gnb_names:
+        claimed = {str(r.get('gNodeB Name') or '').strip().upper()
+                   for r in mm_rows_all if str(r.get('gNodeB Name') or '').strip()}
+        unclaimed = {n for n in known_gnb_names if n.upper() not in claimed}
+        if len(unclaimed) == 1:
+            return next(iter(unclaimed))
+
     return None
 
 
