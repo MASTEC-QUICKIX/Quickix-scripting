@@ -77,7 +77,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
         mm_row = cer.find_mm_row(mm_rows, node_id)
         enb_row = cer.find_enb_row(enb_rows_all, node_id)
         e_name = str(mm_row.get('eNodeB Name') or '').strip() if mm_row else node_id
-        g_name = str(mm_row.get('gNodeB Name') or '').strip() if mm_row else None
+        g_name = cer.resolve_g_name(ciq_wb, mm_row, e_name, rfds_pages, rfds_bytes) if mm_row else None
 
         node_checks = cn.run_node_checks(node_id, log_text, ciq_wb, edp_rows, rfds_pages, rfds_bytes)
         by_rule = {r['rule']: r for r in node_checks}
