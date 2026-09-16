@@ -27,8 +27,8 @@ def build_node_integration(ciq_wb):
         enb_row = enb_rows.get(enb_id)
         gnb_row = gnb_rows.get(gnb_id)
         xmu_source = enb_row or gnb_row
-        has_1xmu = xmu_source and str(xmu_source.get("1st XMU") or "").strip().upper() == "YES"
-        has_2xmu = xmu_source and str(xmu_source.get("2nd XMU") or "").strip().upper() == "YES"
+        has_1xmu = bool(xmu_source) and str(xmu_source.get("1st XMU") or "").strip().upper() == "YES"
+        has_2xmu = bool(xmu_source) and str(xmu_source.get("2nd XMU") or "").strip().upper() == "YES"
         xmu_count = int(has_1xmu) + int(has_2xmu)
         port_parts = []
         if has_1xmu:
