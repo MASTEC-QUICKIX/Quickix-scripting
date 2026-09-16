@@ -149,14 +149,26 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
 
 
     # Site-wide checks: these compare cells against EVERY other cell in the
-    # CIQ (port uniqueness, radio sharing, antenna pairs, SEF/FRU), so they
-    # are inherently one-per-site, not one-per-node. Running them inside the
-    # per-node loop emitted every row once per node - a 3-node site showed
-    # each cell three times. They take a node_id purely as a row label, so
-    # the primary node is passed.
+    # CIQ (radio sharing, antenna pairs, SEF/FRU), so they are inherently
+    # one-per-site, not one-per-node. Running them inside the per-node loop
+    # emitted every row once per node - a 3-node site showed each cell
+    # three times. They take a node_id purely as a row label, so the
+    # primary node is passed.
+    #
+    # port_uniqueness is NOT one of these: check_riport_uniqueness (called
+    # per-node above) already scopes each pass to its OWN e_name/g_name
+    # prefix, so a 3-node site's three passes never re-report the same
+    # port twice - confirmed on a real 3-node site (HXL04147/HXL00147/
+    # HXIN090147F), no duplicate (node, cell, note) triples across all 24
+    # rows. This used to be overwritten here with the older, narrower
+    # check_port_uniqueness() (5G Info only, no Co-Located Technology Cell
+    # exemption, no XMU-reservation folded in) - silently discarding
+    # check_riport_uniqueness's per-node results every run. That is the
+    # confirmed root of "port clash isn't counting XMU / reporting isn't
+    # proper": the richer, already-correct function's output never
+    # actually reached the UI at all.
     site_label = checked_nodes[0] if checked_nodes else ''
     results['radio_sharing'] = cs.check_radio_sharing_pairs(site_label, ciq_wb)
-    results['port_uniqueness'] = cs.check_port_uniqueness(site_label, ciq_wb)
     results['antenna'] = cs.check_antenna_uniqueness(site_label, ciq_wb)
     results['sef_fru'] = cs.check_sef_fru(site_label, ciq_wb)
 
