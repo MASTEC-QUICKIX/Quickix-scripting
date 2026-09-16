@@ -146,6 +146,103 @@ def edp_primary_secondary(edp_rows, node_ids):
     return result
 
 
+def edp_discover_secondary(edp_rows, primary_id):
+    """Finds whatever EDP itself thinks the Secondary is for primary_id,
+    WITHOUT relying on CIQ having told us its name. Confirmed real EDP
+    structure: every row belonging to one physical site — Primary,
+    Secondary, and any ancillary-equipment rows — shares the same
+    SITE_USID (and EDP_SITE_ID); a Secondary is identified within that
+    group by a blank SIAD_PORT_FACING_BBU (same signal edp_primary_secondary
+    uses) and a 'BBU'-type CABINET (excludes ANCILLARY EQ rows, which are
+    also blank on that field but aren't a node identity at all).
+
+    Returns the Secondary's own SITE_NAME, or None if EDP shows no
+    Secondary for this site (single-identity node, or primary not found
+    in EDP at all)."""
+    prim_rows = edp_rows_for_site(edp_rows, primary_id)
+    if not prim_rows:
+        return None
+    site_usid = str(prim_rows[0].get('SITE_USID', '')).strip()
+    if not site_usid:
+        return None
+    for r in edp_rows:
+        if str(r.get('SITE_USID', '')).strip() != site_usid:
+            continue
+        site_name = str(r.get('SITE_NAME', '')).strip()
+        if not site_name or site_name.upper() == str(primary_id).strip().upper():
+            continue
+        cab = str(r.get('CABINET', '')).strip().upper()
+        port = str(r.get('SIAD_PORT_FACING_BBU', '')).strip()
+        if cab.startswith('BBU') and port in ('', 'None'):
+            return site_name
+    return None
+
+
+def resolve_g_name(ciq_wb, mm_row, e_name=None, rfds_pages=None, rfds_bytes=None):
+    """Best-effort recovery of a node's gNodeB Name when Mixed Mode Info's
+    own field is blank. This matters because EVERY 5G check in
+    checks_sector.py (cells_vs_rfds, radio_type, sector_swap, nr_tac,
+    antenna_type_rfds, gnb_du_type, gnb_identity, cell_id_vs_rfds, pci_5g,
+    params_5g, arfcn_bw_5g, ssb_5g, nrcelldu_nrcellcu, losses_vs_antenna)
+    filters 5G Info/eUtran Parameters rows by `cell.startswith(g_name)` and
+    guards with `if not g_name: skip` — a blank g_name doesn't just fail to
+    flag anything, it makes every 5G cell for that node vanish from every
+    result list, silently. Confirmed real gap: blanking gNodeB Name in
+    Mixed Mode Info made an otherwise-untouched node's 5G sectors disappear
+    from the Cell/RRU/Antenna verification table entirely, PASS count and
+    all, instead of showing up as a mismatch.
+
+    Falls back, in order:
+      1. gNBId (same Mixed Mode Info row) matched against gNB Info's or 5G
+         Info's own gNBId column — same node, same numeric identity,
+         Name field just happens to be blank here.
+      2. RFDS CommonName grouping (same mechanism check_primary_secondary
+         uses independently for EDP/RFDS) — the OTHER member of e_name's
+         RFDS group, but only if THAT name is one CIQ's own gNB Info/5G
+         Info tabs recognise as a real gNodeB identity (so a stray LTE-only
+         secondary in the RFDS group is never mistaken for a 5G one).
+
+    Returns None if genuinely unrecoverable — a real single-identity (4G-
+    only) node, or no signal survives anywhere in this CIQ/RFDS."""
+    g_name = str((mm_row or {}).get('gNodeB Name') or '').strip()
+    if g_name:
+        return g_name
+
+    known_gnb_names = set()
+    gnb_id_map = {}
+    if ciq_wb and 'gNB Info' in ciq_wb.sheetnames:
+        for r in sheet_rows_as_dicts(ciq_wb['gNB Info']):
+            name = str(r.get('gNodeB Name') or '').strip()
+            gid = str(r.get('gNBId') or '').strip()
+            if name:
+                known_gnb_names.add(name)
+                if gid:
+                    gnb_id_map.setdefault(gid, name)
+    if ciq_wb and '5G Info' in ciq_wb.sheetnames:
+        for r in sheet_rows_as_dicts(ciq_wb['5G Info']):
+            name = str(r.get('gNB Name') or '').strip()
+            gid = str(r.get('gNBId') or '').strip()
+            if name:
+                known_gnb_names.add(name)
+                if gid:
+                    gnb_id_map.setdefault(gid, name)
+
+    gid = str((mm_row or {}).get('gNBId') or '').strip()
+    if gid and gid in gnb_id_map:
+        return gnb_id_map[gid]
+
+    if e_name and rfds_pages is not None:
+        import rfds_extract as rf
+        groups = rf.extract_common_name_groups(rfds_bytes) if rfds_bytes else None
+        if groups:
+            grp = next((g for g in groups if str(e_name).strip().upper() in [n.upper() for n in g]), None)
+            if grp:
+                for cand in grp:
+                    if cand.upper() != str(e_name).strip().upper() and cand.upper() in {n.upper() for n in known_gnb_names}:
+                        return cand
+    return None
+
+
 def find_revision_history_sheet(ciq_wb):
     """Same fuzzy match as QUICKIX's findRevisionHistorySheet(): exact name
     'Revision History' (any case/whitespace) first, else any sheet whose
