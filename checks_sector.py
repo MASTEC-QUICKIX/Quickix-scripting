@@ -1005,7 +1005,8 @@ def check_gnb_identity_consistency(node_id, ciq_wb, g_name, mm_row=None):
         if len(non_blank) > 1:
             return [f'{label} differs: ' + ', '.join(f'{k}={v or "(blank)"}' for k, v in per_source.items())]
         if len(non_blank) == 1 and blank_in:
-            return [f'{label} blank in {", ".join(blank_in)} but {next(iter(non_blank))} elsewhere.']
+            present_in = [k for k, v in per_source.items() if v]
+            return [f'{label} blank in {", ".join(blank_in)} but {next(iter(non_blank))} in {", ".join(present_in)}.']
         return []
 
     ids_by_source = {k: v[0] for k, v in sources.items()}
