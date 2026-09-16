@@ -944,7 +944,7 @@ def check_gnb_du_type_vs_5g_bbu_type(node_id, ciq_wb, g_name, e_name=None):
     return [{'rule': '#53', 'node': node_id, 'cell': g_name, 'status': 'MATCH' if match else 'MISMATCH', 'note': note}]
 
 
-def check_gnb_identity_consistency(node_id, ciq_wb, g_name):
+def check_gnb_identity_consistency(node_id, ciq_wb, g_name, mm_row=None):
     """gNBId/gNodeB Name must agree across Mixed Mode Info, gNB Info, and
     5G Info — confirmed real CIQ column names: Mixed Mode Info and gNB
     Info both use 'gNBId'/'gNodeB Name'; 5G Info uses 'gNBId'/'gNB Name'
@@ -952,13 +952,27 @@ def check_gnb_identity_consistency(node_id, ciq_wb, g_name):
     5G Info has one row per CELL, not per node, so its own rows are
     collapsed to their distinct set of values first — a differing value
     across 5G Info's own cells is itself part of the mismatch, not
-    silently picked from one row."""
+    silently picked from one row.
+
+    mm_row: this node's OWN Mixed Mode Info row (found by node identity,
+    e.g. via cer.find_mm_row), passed in directly rather than re-found by
+    matching g_name against Mixed Mode Info's own gNodeB Name column.
+    Confirmed real gap fixed here: when that column is blank (and g_name
+    only reached this function via a fallback recovery elsewhere, e.g.
+    resolve_g_name using gNBId), the old name-match search could never
+    find the row it was itself looking for — Mixed Mode Info silently
+    dropped out of the comparison, and the MATCH branch's note was a
+    HARDCODED string claiming all three tabs agreed, even though Mixed
+    Mode Info was never actually compared. A blank field sitting next to
+    a real value elsewhere is exactly the kind of gap this check exists
+    to catch, not something to quietly omit."""
     if not g_name:
         return []
     g_upper = g_name.strip().upper()
 
-    mm_row = next((r for r in _rows(ciq_wb, 'Mixed Mode Info')
-                   if str(r.get('gNodeB Name') or '').strip().upper() == g_upper), None)
+    if mm_row is None:
+        mm_row = next((r for r in _rows(ciq_wb, 'Mixed Mode Info')
+                       if str(r.get('gNodeB Name') or '').strip().upper() == g_upper), None)
     gnb_row = next((r for r in _rows(ciq_wb, 'gNB Info')
                     if str(r.get('gNodeB Name') or '').strip().upper() == g_upper), None)
     fiveg_rows = [r for r in _rows(ciq_wb, '5G Info')
@@ -968,7 +982,7 @@ def check_gnb_identity_consistency(node_id, ciq_wb, g_name):
         return str(v).strip() if v is not None else ''
 
     sources = {}
-    if mm_row:
+    if mm_row is not None:
         sources['Mixed Mode Info'] = (_val(mm_row.get('gNBId')), _val(mm_row.get('gNodeB Name')))
     if gnb_row:
         sources['gNB Info'] = (_val(gnb_row.get('gNBId')), _val(gnb_row.get('gNodeB Name')))
@@ -981,15 +995,24 @@ def check_gnb_identity_consistency(node_id, ciq_wb, g_name):
         return [{'rule': '#52', 'node': node_id, 'cell': g_name, 'status': 'SKIPPED',
                  'note': f"Only found in {', '.join(sources) or 'no tab'} - nothing to cross-check."}]
 
-    ids = {v[0] for v in sources.values() if v[0]}
-    names = {v[1] for v in sources.values() if v[1]}
-    mismatches = []
-    if len(ids) > 1:
-        mismatches.append('gNBId differs: ' + ', '.join(f'{k}={v[0]}' for k, v in sources.items()))
-    if len(names) > 1:
-        mismatches.append('gNodeB Name differs: ' + ', '.join(f'{k}={v[1]}' for k, v in sources.items()))
+    def _field_mismatches(label, per_source):
+        """A real disagreement is either two different non-blank values,
+        OR one source blank while another has a real value — a blank
+        column is a genuine gap, not an unopinionated abstention, once
+        another tab shows there's a real value it should have held."""
+        non_blank = {v for v in per_source.values() if v}
+        blank_in = [k for k, v in per_source.items() if not v]
+        if len(non_blank) > 1:
+            return [f'{label} differs: ' + ', '.join(f'{k}={v or "(blank)"}' for k, v in per_source.items())]
+        if len(non_blank) == 1 and blank_in:
+            return [f'{label} blank in {", ".join(blank_in)} but {next(iter(non_blank))} elsewhere.']
+        return []
+
+    ids_by_source = {k: v[0] for k, v in sources.items()}
+    names_by_source = {k: v[1] for k, v in sources.items()}
+    mismatches = _field_mismatches('gNBId', ids_by_source) + _field_mismatches('gNodeB Name', names_by_source)
     status = 'MISMATCH' if mismatches else 'MATCH'
-    note = '; '.join(mismatches) if mismatches else 'gNBId/gNodeB Name consistent across Mixed Mode Info, gNB Info, 5G Info.'
+    note = '; '.join(mismatches) if mismatches else f"gNBId/gNodeB Name consistent across {', '.join(sources)}."
     return [{'rule': '#52', 'node': node_id, 'cell': g_name, 'status': status, 'note': note}]
 
 
