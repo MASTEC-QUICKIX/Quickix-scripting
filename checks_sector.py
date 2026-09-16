@@ -505,10 +505,24 @@ def check_port_uniqueness(node_id, ciq_wb):
 
     # cell-name prefix -> that node's XMU ports
     xmu_ports_by_prefix = {}
+    # A node's eNB Info XMU and gNB Info XMU are two SEPARATE physical XMU
+    # units (TMBB/MMBB) - the union below is right for "does a sector reuse
+    # an XMU port", but taking the union ALSO silently erases the case
+    # where eNB Info's own declared port and gNB Info's own declared port
+    # are literally the same letter, i.e. the two physical XMUs on this one
+    # node claim the same port - that's a conflict in its own right and
+    # never showed up anywhere before (confirmed real case: both declared
+    # '1st XMU'='YES' with ports K/L/M on the SAME node).
+    xmu_self_overlap = {}
     for mm in mm_rows:
         e_name = str(mm.get('eNodeB Name') or '').strip()
         g_name = str(mm.get('gNodeB Name') or '').strip()
-        node_ports = _ports_from(enb_by_name.get(e_name)) | _ports_from(gnb_by_name.get(g_name))
+        enb_ports = _ports_from(enb_by_name.get(e_name))
+        gnb_ports = _ports_from(gnb_by_name.get(g_name))
+        node_ports = enb_ports | gnb_ports
+        overlap = enb_ports & gnb_ports
+        if overlap:
+            xmu_self_overlap[e_name or g_name] = overlap
         if not node_ports:
             continue
         for prefix in (e_name, g_name):
@@ -523,6 +537,25 @@ def check_port_uniqueness(node_id, ciq_wb):
 
     xmu_ports = set().union(*xmu_ports_by_prefix.values()) if xmu_ports_by_prefix else set()
 
+    # Board/port is ONE physical RI-port namespace regardless of which tab
+    # names the cell: a TMBB/MMBB node's 4G and 5G cells sit on the SAME
+    # DU/BBU hardware (confirmed elsewhere - check_gnb_du_type_vs_5g_bbu_type
+    # relies on the same board id agreeing across eNB Info 'DU type', gNB
+    # Info 'DU type', and 5G Info 'BBU Type'). Real gap this closes:
+    # eUtran Parameters' 4G cells ('DUS / XMU' + 'DUS / XMU Port'/'...
+    # Port Expansion') were never in this map at all - a 4G cell reusing
+    # another 4G cell's port, or a 4G cell landing on a port an XMU or a
+    # 5G cell already owns on the SAME board, was invisible here. Each
+    # entry below is (cell, board, [that cell's own port values]).
+    cell_ports = [(row.get('NRCellDU'), str(row.get('BB/XMU', '')).strip(),
+                   [str(row.get(pc)).strip() for pc in port_cols
+                    if row.get(pc) is not None and str(row.get(pc)).strip()])
+                  for row in fiveg_rows]
+    cell_ports += [(row.get('EutranCellFDDId'), str(row.get('DUS / XMU', '')).strip(),
+                    [str(row.get(pc)).strip() for pc in ('DUS / XMU Port', 'DUS / XMU Port Expansion')
+                     if row.get(pc) is not None and str(row.get(pc)).strip().upper() not in ('', 'N/A', 'NOT USED')])
+                   for row in _rows(ciq_wb, 'eUtran Parameters')]
+
     shared_radio_group = {}  # cell -> group key, for 6472-sharing cells only
     for row in fiveg_rows:
         rru_type = str(row.get('RRU Type', '')).strip()
@@ -533,48 +566,35 @@ def check_port_uniqueness(node_id, ciq_wb):
                 shared_radio_group[cell] = sef
 
     usage = {}
-    for row in fiveg_rows:
-        cell = row.get('NRCellDU')
-        bbu = str(row.get('BB/XMU', '')).strip()
+    for cell, bbu, ports in cell_ports:
         is_xmu = 'XMU' in bbu.upper()
-        for pc in port_cols:
-            val = row.get(pc)
-            if val is None or str(val).strip() == '':
-                continue
-            key = (bbu, str(val).strip())
+        for val in ports:
+            key = (bbu, val)
             usage.setdefault(key, []).append(cell)
             if is_xmu:
-                xmu_ports.add(str(val).strip())
+                xmu_ports.add(val)
 
     # Blueprint's RI port table has TWO port columns: LTE cells use one RI
     # port (second shows NA), 5G cells can use two. Collect each cell's full
     # port list so the second can be rendered.
-    ports_by_cell = {}
-    for row in fiveg_rows:
-        cell = row.get('NRCellDU')
-        if not cell:
-            continue
-        plist = [str(row.get(pc)).strip() for pc in port_cols
-                 if row.get(pc) is not None and str(row.get(pc)).strip()]
-        ports_by_cell[cell] = plist
+    ports_by_cell = {cell: ports for cell, bbu, ports in cell_ports if cell}
 
     # XMU ports are keyed separately in `usage` (by their own BB/XMU value), so
     # a sector reusing an XMU port never collides there and its own row would
     # read Unique. Collect the conflicting (cell, port) pairs up front so the
     # sector's real row can be marked - previously this only appended an extra
     # MISMATCH row afterwards, leaving the sector's original row saying Unique
-    # and the same cell appearing twice with contradictory verdicts.
+    # and the same cell appearing twice with contradictory verdicts. Runs
+    # over 4G cells too now, same reason as the `usage` map above - a 4G
+    # cell landing on an XMU's declared port is just as real a conflict.
     xmu_conflicts = {}
-    for row in fiveg_rows:
-        cell = row.get('NRCellDU')
-        bbu = str(row.get('BB/XMU', '')).strip()
+    for cell, bbu, ports in cell_ports:
         if 'XMU' in bbu.upper():
             continue
         own_xmu_ports = _xmu_ports_for_cell(cell)
-        for pc in port_cols:
-            val = row.get(pc)
-            if val is not None and str(val).strip() in own_xmu_ports:
-                xmu_conflicts[(cell, str(val).strip())] = bbu
+        for val in ports:
+            if val in own_xmu_ports:
+                xmu_conflicts[(cell, val)] = bbu
 
     results = []
     for (bbu, port), cells in usage.items():
@@ -597,6 +617,11 @@ def check_port_uniqueness(node_id, ciq_wb):
                 status, note = 'MATCH', 'Port unique.'
             results.append({'rule': '#11/#26/#27', 'node': node_id, 'cell': cell, 'status': status,
                              'bbu': bbu, 'port': port, 'port2': _pl[0] if _pl else None, 'note': note})
+
+    for node_prefix, overlap in xmu_self_overlap.items():
+        results.append({'rule': '#11/#26/#27', 'node': node_id, 'cell': node_prefix, 'status': 'MISMATCH',
+                         'bbu': 'XMU', 'port': ', '.join(sorted(overlap)), 'port2': None,
+                         'note': f"eNB Info's XMU and gNB Info's XMU both declare port(s) {sorted(overlap)} on {node_prefix} - two separate physical XMUs cannot share a port."})
 
     return results
 
@@ -1487,18 +1512,33 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_na
             port_to_cells.setdefault(p, []).append(c)
 
     # Rule #2: ports this node's own 1st/2nd XMU declares are reserved
-    # outright, regardless of Co-Located Technology Cell.
-    xmu_ports = set()
-    for row in (r for r in (enb_row, gnb_row) if r is not None):
+    # outright, regardless of Co-Located Technology Cell. eNB Info's XMU
+    # and gNB Info's XMU are two SEPARATE physical XMU units - unioning
+    # them (as below, for the port-reservation check) is right for "does a
+    # cell reuse an XMU port", but on its own it silently loses the case
+    # where the two units claim the SAME port letter as each other, which
+    # is its own real conflict (confirmed real case: both declared '1st
+    # XMU'='YES' with ports K/L/M on the same node) - flagged separately.
+    enb_xmu, gnb_xmu = set(), set()
+    for row, bucket in ((enb_row, 'enb_xmu'), (gnb_row, 'gnb_xmu')):
+        if row is None:
+            continue
+        target = enb_xmu if bucket == 'enb_xmu' else gnb_xmu
         for which in ("1st", "2nd"):
             if str(row.get(f"{which} XMU", "")).strip().upper() != "YES":
                 continue
             for i in (1, 2, 3):
                 v = str(row.get(f"{which} XMU Port {i}") or "").strip()
                 if v and v.upper() not in ("", "N/A", "NA", "NOT USED"):
-                    xmu_ports.add(v.upper())
+                    target.add(v.upper())
+    xmu_ports = enb_xmu | gnb_xmu
+    xmu_self_overlap = enb_xmu & gnb_xmu
 
     out = []
+    if xmu_self_overlap:
+        out.append({"rule": "#67", "node": node_id, "cell": node_id, "status": "MISMATCH",
+                    "note": f"eNB Info's XMU and gNB Info's XMU both declare port(s) {sorted(xmu_self_overlap)} "
+                            f"- two separate physical XMUs cannot share a port."})
     for port, group in port_to_cells.items():
         if port in xmu_ports:
             out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MISMATCH",
@@ -1555,9 +1595,11 @@ def check_xmu_port_overlap(node_id, enb_row, gnb_row, ciq_wb):
 
     du_type = ''
     xmu_ports = set()
+    enb_ports, gnb_ports = set(), set()
     declared = False
     for row in rows:
         du_type = du_type or str(row.get('DU type') or row.get('1st DU type') or '').strip()
+        row_ports = set()
         for which in ('1st', '2nd'):
             if str(row.get(f'{which} XMU', '')).strip().upper() != 'YES':
                 continue
@@ -1565,9 +1607,16 @@ def check_xmu_port_overlap(node_id, enb_row, gnb_row, ciq_wb):
             for i in (1, 2, 3):
                 v = row.get(f'{which} XMU Port {i}')
                 if v is not None and str(v).strip().upper() not in ('', 'N/A', 'NA', 'NOT USED'):
-                    xmu_ports.add(str(v).strip())
+                    row_ports.add(str(v).strip())
+        xmu_ports |= row_ports
+        if row is enb_row:
+            enb_ports |= row_ports
+        if row is gnb_row:
+            gnb_ports |= row_ports
     if not declared:
         return []
+
+    self_overlap = enb_ports & gnb_ports
 
     # Only this node's own cells can conflict with this node's XMU ports -
     # a sector on a different physical node uses different hardware.
@@ -1588,11 +1637,32 @@ def check_xmu_port_overlap(node_id, enb_row, gnb_row, ciq_wb):
             if v is not None and str(v).strip() in xmu_ports:
                 used_elsewhere.add(str(v).strip())
 
-    unique = not used_elsewhere
+    # 4G cells (eUtran Parameters) sit on the SAME shared DU/BBU hardware on
+    # a TMBB/MMBB node and were never checked here at all - a 4G cell
+    # landing on this node's declared XMU port is exactly the same kind of
+    # conflict as a 5G cell doing it.
+    for row4g in _rows(ciq_wb, 'eUtran Parameters'):
+        board = str(row4g.get('DUS / XMU', '')).strip()
+        if 'XMU' in board.upper():
+            continue
+        cell = str(row4g.get('EutranCellFDDId') or '')
+        if not any(cell.startswith(p) for p in own_prefixes):
+            continue
+        for pc in ('DUS / XMU Port', 'DUS / XMU Port Expansion'):
+            v = row4g.get(pc)
+            if v is not None and str(v).strip().upper() not in ('', 'N/A', 'NOT USED') and str(v).strip() in xmu_ports:
+                used_elsewhere.add(str(v).strip())
+
+    unique = not used_elsewhere and not self_overlap
+    note_parts = []
+    if self_overlap:
+        note_parts.append(f"eNB Info XMU and gNB Info XMU both declare port(s) {sorted(self_overlap)} - two separate physical XMUs cannot share a port.")
+    if used_elsewhere:
+        note_parts.append(f'XMU ports reused elsewhere: {sorted(used_elsewhere)}')
     return [{'rule': '#11/#25', 'node': node_id, 'cell': node_id,
               'du_type': du_type, 'xmu': 'Yes', 'xmu_ports': ', '.join(sorted(xmu_ports)) or 'NOT USED',
               'status': 'MATCH' if unique else 'MISMATCH',
-              'note': 'Unique.' if unique else f'XMU ports reused elsewhere: {sorted(used_elsewhere)}'}]
+              'note': 'Unique.' if unique else ' '.join(note_parts)}]
 
 
 def check_radio_port_conflict(node_id, ciq_wb):
