@@ -157,10 +157,16 @@ def check_primary_secondary(node_id, edp_rows, mm_row, rfds_pages=None, rfds_byt
 
     # RFDS: CommonName table grouping (see rfds_extract.extract_common_name_groups)
     # answers the same question independently of CIQ's Secondary name.
-    # Falls back to the old CIQ-name pairwise text search only when the
-    # table-group extraction itself isn't available (e.g. zip-bundle/OCR
-    # RFDS format, no genuine PDF table to read) - that fallback still
-    # needs CIQ's name since it has no other way to search.
+    # Falls back to a pairwise text search only when the table-group
+    # extraction itself isn't available (e.g. zip-bundle/OCR RFDS format,
+    # no genuine PDF table to read) - that fallback needs a NAME to search
+    # for, so it tries CIQ's own Secondary first and, when CIQ has none,
+    # the Secondary EDP just discovered independently above. Confirmed
+    # real case this rescues: CIQ blank, zip-bundle RFDS (no table
+    # extraction), EDP correctly found FCON094120 for FCL04120 - without
+    # this, RFDS stayed 'NOT CHECKED' even though the plain text search
+    # (check_nodes_present_together) DOES find that exact pair once given
+    # the name to look for.
     rfds_label = 'NOT CHECKED'
     if rfds_pages is not None:
         import rfds_extract as rf
@@ -173,15 +179,16 @@ def check_primary_secondary(node_id, edp_rows, mm_row, rfds_pages=None, rfds_byt
                 rfds_secondary = others[0] if others else None
                 rfds_label = _combined_node_label(primary, rfds_secondary, bbu_mode)
         if rfds_label == 'NOT CHECKED':
-            if ciq_secondary:
-                present = rf.check_nodes_present_together(rfds_pages, primary, ciq_secondary, rfds_bytes)
+            candidate_secondary = ciq_secondary or edp_secondary
+            if candidate_secondary:
+                present = rf.check_nodes_present_together(rfds_pages, primary, candidate_secondary, rfds_bytes)
                 if present is True:
-                    rfds_label = ciq_label
+                    rfds_label = _combined_node_label(primary, candidate_secondary, bbu_mode)
                 elif present is False:
                     rfds_label = 'NOT FOUND IN RFDS'
                 # else inconclusive - stays 'NOT CHECKED'
             else:
-                rfds_label = ciq_label  # no CIQ name and no table groups to search independently
+                rfds_label = ciq_label  # no name from CIQ or EDP, and no table groups - nothing to search
 
     match = (edp_label == ciq_label) and (rfds_label in (ciq_label, 'NOT CHECKED'))
     status = 'MATCH' if match else 'MISMATCH'
