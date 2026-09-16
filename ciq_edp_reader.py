@@ -4,6 +4,7 @@ Pre-checks-validation rules need. Kept separate from pre_extract.py since
 these read spreadsheets rather than the kget-all log text.
 """
 import openpyxl
+import re
 import xlrd
 
 
@@ -146,34 +147,47 @@ def edp_primary_secondary(edp_rows, node_ids):
     return result
 
 
+def _norm_cabinet(v):
+    return re.sub(r'\s+', '', str(v or '')).upper()
+
+
 def edp_discover_secondary(edp_rows, primary_id):
     """Finds whatever EDP itself thinks the Secondary is for primary_id,
     WITHOUT relying on CIQ having told us its name. Confirmed real EDP
     structure: every row belonging to one physical site — Primary,
     Secondary, and any ancillary-equipment rows — shares the same
-    SITE_USID (and EDP_SITE_ID); a Secondary is identified within that
-    group by a blank SIAD_PORT_FACING_BBU (same signal edp_primary_secondary
-    uses) and a 'BBU'-type CABINET (excludes ANCILLARY EQ rows, which are
-    also blank on that field but aren't a node identity at all).
+    SITE_USID (and EDP_SITE_ID). A site can host SEVERAL primary/secondary
+    pairs at once (confirmed real case, SITE_USID 64921: FCL04120/
+    FCON094120 AND FCL09220R AND FCL07900R/FCON097900 all on one site) —
+    matching on 'any blank-port BBU row in the group' picked whichever one
+    came first in iteration order for EVERY primary at that site,
+    regardless of whose it actually was.
 
-    Returns the Secondary's own SITE_NAME, or None if EDP shows no
-    Secondary for this site (single-identity node, or primary not found
-    in EDP at all)."""
+    A Secondary's own CABINET is its Primary's cabinet number with a
+    trailing 'V' (confirmed convention, same one _cabinet_pairing_map in
+    rrnrbl_checklist.py already relies on once CIQ tells it who's paired
+    with whom) — that suffix match is what actually scopes this to the
+    RIGHT pair, not just narrows it. A primary whose own cabinet has no
+    'V'-suffixed match anywhere on the site (e.g. FCL09220R, cabinet 'BBU
+    02', with no 'BBU 02V' row at this site at all) genuinely has no EDP
+    Secondary — returns None rather than guessing.
+
+    Returns the Secondary's own SITE_NAME, or None."""
     prim_rows = edp_rows_for_site(edp_rows, primary_id)
     if not prim_rows:
         return None
     site_usid = str(prim_rows[0].get('SITE_USID', '')).strip()
-    if not site_usid:
+    prim_cab = _norm_cabinet(prim_rows[0].get('CABINET'))
+    if not site_usid or not prim_cab:
         return None
+    expected_cab = prim_cab if prim_cab.endswith('V') else prim_cab + 'V'
     for r in edp_rows:
         if str(r.get('SITE_USID', '')).strip() != site_usid:
             continue
         site_name = str(r.get('SITE_NAME', '')).strip()
         if not site_name or site_name.upper() == str(primary_id).strip().upper():
             continue
-        cab = str(r.get('CABINET', '')).strip().upper()
-        port = str(r.get('SIAD_PORT_FACING_BBU', '')).strip()
-        if cab.startswith('BBU') and port in ('', 'None'):
+        if _norm_cabinet(r.get('CABINET')) == expected_cab:
             return site_name
     return None
 
