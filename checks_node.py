@@ -123,44 +123,65 @@ def check_primary_secondary(node_id, edp_rows, mm_row, rfds_pages=None, rfds_byt
     """Rule #3/#31 - Primary/Secondary agreement, CIQ vs EDP vs RFDS. Each
     column shows the combined 'Primary(P)/Secondary(S)(mode)' label per its
     own source, per the confirmed format (a plain role string isn't enough -
-    the label itself is the comparable unit here)."""
+    the label itself is the comparable unit here).
+
+    EDP and RFDS are each asked INDEPENDENTLY whether a Secondary exists,
+    rather than only being searched for the name CIQ supplies. Originally
+    this looked up EDP/RFDS using e_name/g_name straight out of CIQ's own
+    Mixed Mode Info row - if CIQ's Secondary field was blank (deleted,
+    typo'd, or a genuine data gap), the very name needed to find that
+    Secondary elsewhere was never queried, so a Secondary still sitting in
+    EDP or RFDS went undetected and the row silently reported MATCH.
+    Confirmed real gap: blanking the Secondary ID in CIQ while EDP/RFDS
+    still carried it produced no flag at all."""
     if mm_row is None:
         return {'rule': '#3/#31', 'node': node_id, 'status': 'MISMATCH',
                 'ciq': None, 'edp': None, 'rfds': None, 'note': 'Node not found in CIQ Mixed Mode Info.'}
 
     primary = str(mm_row.get('Node to be built as') or '').strip()
     e_name, g_name = mm_row.get('eNodeB Name'), mm_row.get('gNodeB Name')
-    secondary = g_name if str(primary).strip().upper() == str(e_name or '').strip().upper() else e_name
+    ciq_secondary = g_name if str(primary).strip().upper() == str(e_name or '').strip().upper() else e_name
+    ciq_secondary = str(ciq_secondary or '').strip() or None
     bbu_mode = mm_row.get('BBU Mode')
-    ciq_label = _combined_node_label(primary, secondary, bbu_mode)
+    ciq_label = _combined_node_label(primary, ciq_secondary, bbu_mode)
 
-    # EDP: primary = whichever of e_name/g_name has SIAD_PORT_FACING_BBU populated
-    edp_role_map = cer.edp_primary_secondary(edp_rows, [n for n in (e_name, g_name) if n])
-    edp_primary = next((n for n in (e_name, g_name) if n and edp_role_map.get(n) == 'PRIMARY'), None)
-    edp_secondary = next((n for n in (e_name, g_name) if n and n != edp_primary and edp_role_map.get(n)), None)
-    if edp_primary:
-        edp_label = _combined_node_label(edp_primary, edp_secondary, bbu_mode)
-    else:
+    # EDP: SITE_USID-grouped lookup (see edp_discover_secondary) - finds
+    # whatever Secondary EDP itself has for this site, independent of what
+    # CIQ says its name is.
+    edp_secondary = cer.edp_discover_secondary(edp_rows, primary)
+    prim_edp_rows = cer.edp_rows_for_site(edp_rows, primary)
+    if not prim_edp_rows:
         edp_label = 'NOT FOUND IN EDP'
+    else:
+        edp_label = _combined_node_label(primary, edp_secondary, bbu_mode)
 
+    # RFDS: CommonName table grouping (see rfds_extract.extract_common_name_groups)
+    # answers the same question independently of CIQ's Secondary name.
+    # Falls back to the old CIQ-name pairwise text search only when the
+    # table-group extraction itself isn't available (e.g. zip-bundle/OCR
+    # RFDS format, no genuine PDF table to read) - that fallback still
+    # needs CIQ's name since it has no other way to search.
     rfds_label = 'NOT CHECKED'
     if rfds_pages is not None:
         import rfds_extract as rf
-        present = rf.check_nodes_present_together(rfds_pages, primary, secondary, rfds_bytes) if secondary else None
-        if secondary:
-            # present is True/False/None (inconclusive - every extraction
-            # path missed but the table read real data, confirmed real
-            # false-negative case in check_nodes_present_together's own
-            # docstring). Only a confirmed False is a real RFDS miss;
-            # None must not read as one.
-            if present is True:
-                rfds_label = ciq_label
-            elif present is False:
-                rfds_label = 'NOT FOUND IN RFDS'
+        rfds_secondary = None
+        groups = rf.extract_common_name_groups(rfds_bytes) if rfds_bytes else None
+        if groups is not None:
+            grp = next((g for g in groups if primary.upper() in [n.upper() for n in g]), None)
+            if grp is not None:
+                others = [n for n in grp if n.upper() != primary.upper()]
+                rfds_secondary = others[0] if others else None
+                rfds_label = _combined_node_label(primary, rfds_secondary, bbu_mode)
+        if rfds_label == 'NOT CHECKED':
+            if ciq_secondary:
+                present = rf.check_nodes_present_together(rfds_pages, primary, ciq_secondary, rfds_bytes)
+                if present is True:
+                    rfds_label = ciq_label
+                elif present is False:
+                    rfds_label = 'NOT FOUND IN RFDS'
+                # else inconclusive - stays 'NOT CHECKED'
             else:
-                rfds_label = 'NOT CHECKED'
-        else:
-            rfds_label = ciq_label  # single-identity node - nothing to cross-confirm pairing on
+                rfds_label = ciq_label  # no CIQ name and no table groups to search independently
 
     match = (edp_label == ciq_label) and (rfds_label in (ciq_label, 'NOT CHECKED'))
     status = 'MATCH' if match else 'MISMATCH'
