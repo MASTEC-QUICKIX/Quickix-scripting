@@ -960,6 +960,8 @@ _MM_PARAM_LABEL = {
 
 # CIQ-side validation rules, and the label each one reports under.
 _MM_CIQ_CHECKS = [
+    ("primary_secondary", "Primary/Secondary ID"),
+    ("gnb_identity", "gNB Identity (Mixed Mode vs gNB/5G Info)"),
     ("pci_4g", "PCI clash (LTE)"),
     ("pci_5g", "PCI clash (5G)"),
     ("antenna", "Antenna uniqueness"),
