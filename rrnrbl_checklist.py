@@ -22,7 +22,7 @@ import openpyxl
 import ciq_edp_reader as cer
 from band_labels import SECTOR_ORDER, is_5g_cell
 
-TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Checklist_RRNRBL.xlsx")
+TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Combined_NRBL-RR Checklist - V3.xlsx")
 
 
 def _log_text_for(entry, node_logs_text):
