@@ -197,6 +197,55 @@ def build_lte_ciq_rows(ciq_wb, node_id_col_map=None):
                 port = str(rows[i].get("DUS / XMU Port") or "").strip()
                 add(i, f"Shared Radio Port (Port={port} used by: {cells}) \u2014 Add to Co-Located field")
 
+    # ── Cross-tech port reuse (this 4G cell vs a 5G cell on the SAME
+    # physical board) and XMU-reserved port reuse — the eNBId-based check
+    # above only ever compares 4G cells against other 4G cells, so a 5G
+    # cell on the same DU/BBU board sharing this cell's port (confirmed
+    # real gap: a TMBB node's 4G cell and 5G cell legitimately sharing one
+    # physical antenna port, or illegitimately clashing on one) was
+    # invisible here. Board id is the same physical unit across techs
+    # (confirmed elsewhere: DU type must agree across eNB Info/gNB Info/
+    # 5G Info for one TMBB/MMBB node), so (board, port) - not eNBId - is
+    # the right cross-tech key.
+    fiveg_rows_all = cer.sheet_rows_as_dicts(ciq_wb["5G Info"]) if "5G Info" in ciq_wb.sheetnames else []
+    board_port_5g = {}
+    for r5 in fiveg_rows_all:
+        board = str(r5.get("BB/XMU") or "").strip()
+        cell5 = str(r5.get("NRCellDU") or "").strip()
+        colo5 = {c.strip().upper() for c in str(r5.get("Co-Located Technology Cell") or "").split(",") if c.strip()}
+        for pc in ("Port 1", "Port 2", "Port 3", "Port 4"):
+            v = str(r5.get(pc) or "").strip().upper()
+            if v and v not in ("N/A", "NOT USED"):
+                board_port_5g.setdefault((board, v), []).append((cell5, colo5))
+
+    xmu_ports_by_enb = {}
+    for r_enb in cer.enb_info_rows(ciq_wb):
+        enb = str(r_enb.get("eNBId") or "").strip()
+        for which in ("1st", "2nd"):
+            if str(r_enb.get(f"{which} XMU", "")).strip().upper() != "YES":
+                continue
+            for k in (1, 2, 3):
+                v = str(r_enb.get(f"{which} XMU Port {k}") or "").strip().upper()
+                if v and v not in ("", "N/A", "NOT USED"):
+                    xmu_ports_by_enb.setdefault(enb, set()).add(v)
+
+    for i, r in enumerate(rows):
+        board = str(r.get("DUS / XMU") or "").strip()
+        cell = str(r.get("EutranCellFDDId") or "").strip()
+        colo = {c.strip().upper() for c in str(r.get("Co-Located Technology Cell") or "").split(",") if c.strip()}
+        enb = str(r.get("eNBId") or "").strip()
+        node_xmu_ports = xmu_ports_by_enb.get(enb, set())
+        for pc in ("DUS / XMU Port", "DUS / XMU Port Expansion"):
+            v = str(r.get(pc) or "").strip().upper()
+            if not v or v in ("N/A", "NOT USED"):
+                continue
+            if v in node_xmu_ports:
+                add(i, f"Port Clash (Port={v} on this node's XMU but also assigned to: {cell})")
+                continue
+            other5g = [c for c, _ in board_port_5g.get((board, v), []) if c and c != cell]
+            if other5g and not (colo & {c.upper() for c in other5g}):
+                add(i, f"Port Clash (Port={v} on board {board} shared with 5G cell(s): {', '.join(sorted(set(other5g)))}) \u2014 Add to Co-Located field")
+
     # ── PCI calculation: PCI == PhysicalLayerCellIdGroup*3 + physicalLayerSubCellId ──
     for i, r in enumerate(rows):
         grp, sub, pci = r.get("PhysicalLayerCellIdGroup"), r.get("physicalLayerSubCellId"), r.get("PCI")
