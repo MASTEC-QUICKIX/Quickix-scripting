@@ -1475,7 +1475,7 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_na
     exact port to appear somewhere in this cell's own list (not the
     reverse — a real CIQ can leave the list one-directional on one side
     of a pair)."""
-    def _cells(sheet, id_col, port_cols, co_col, prefix):
+    def _cells(sheet, id_col, board_col, port_cols, co_col, prefix):
         out = []
         if not prefix:
             return out
@@ -1490,13 +1490,20 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_na
                     ports.add(v.upper())
             co = {c.strip().upper() for c in str(row.get(co_col) or "").split(",")
                   if c.strip() and c.strip().upper() not in ("N/A", "NA")}
-            out.append({"cell": cid, "ports": ports, "co_located": co})
+            out.append({"cell": cid, "board": str(row.get(board_col) or "").strip(),
+                        "ports": ports, "co_located": co})
         return out
 
-    cells = (_cells("eUtran Parameters", "EutranCellFDDId",
+    # Ports are per-BOARD connectors (A/B/C.../D/E/F are relabeled on every
+    # DU) - two different boards reusing the same letter is normal and not
+    # a clash. Confirmed real false positive this fixes: a cell on board
+    # 6672 port A was flagged against unrelated cells on board 6651 port A
+    # just because the letter matched, even though physically different
+    # hardware can never actually collide.
+    cells = (_cells("eUtran Parameters", "EutranCellFDDId", "DUS / XMU",
                      ["DUS / XMU Port", "DUS / XMU Port Expansion"], "Co-Located Technology Cell",
                      e_name or node_id)
-             + _cells("5G Info", "NRCellDU", ["Port 1", "Port 2", "Port 3", "Port 4"],
+             + _cells("5G Info", "NRCellDU", "BB/XMU", ["Port 1", "Port 2", "Port 3", "Port 4"],
                       "Co-Located Technology Cell", g_name or node_id))
     if not cells:
         return []
@@ -1504,7 +1511,7 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_na
     port_to_cells = {}
     for c in cells:
         for p in c["ports"]:
-            port_to_cells.setdefault(p, []).append(c)
+            port_to_cells.setdefault((c["board"], p), []).append(c)
 
     # Rule #2: ports this node's own 1st/2nd XMU declares are reserved
     # outright, regardless of Co-Located Technology Cell. On a TMBB/MMBB
@@ -1534,10 +1541,10 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_na
         out.append({"rule": "#67", "node": node_id, "cell": node_id, "status": "MISMATCH",
                     "note": f"eNB Info's XMU ports ({sorted(enb_xmu) or 'none'}) and gNB Info's XMU ports "
                             f"({sorted(gnb_xmu) or 'none'}) should describe the same physical XMU but disagree."})
-    for port, group in port_to_cells.items():
+    for (board, port), group in port_to_cells.items():
         if port in xmu_ports:
             out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MISMATCH",
-                        "note": f"Port {port} is declared under this node's XMU but also assigned to: "
+                        "note": f"Port {port} on board {board} is declared under this node's XMU but also assigned to: "
                                 f"{', '.join(sorted(c['cell'] for c in group))}"})
             continue
         if len(group) < 2:
@@ -1559,18 +1566,18 @@ def check_riport_uniqueness(node_id, enb_row, gnb_row, ciq_wb, e_name=None, g_na
         same_sector = len({_sector_of(c) for c in group}) == 1
         if n77_tier_group and same_sector:
             out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MATCH",
-                        "note": f"Port {port} shared by CBAND/DOD/DOD_BWE carrier tiers on the same sector: "
+                        "note": f"Port {port} on board {board} shared by CBAND/DOD/DOD_BWE carrier tiers on the same sector: "
                                 f"{', '.join(sorted(c['cell'] for c in group))}"})
             continue
         bad = [c for c in group if not all(other["cell"] in c["co_located"]
                                             for other in group if other is not c)]
         if bad:
             out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MISMATCH",
-                        "note": f"Port {port} reused by non-co-located cells: "
+                        "note": f"Port {port} on board {board} reused by non-co-located cells: "
                                 f"{', '.join(sorted(c['cell'] for c in group))}"})
         else:
             out.append({"rule": "#67", "node": node_id, "cell": port, "status": "MATCH",
-                        "note": f"Port {port} shared by confirmed co-located cells: "
+                        "note": f"Port {port} on board {board} shared by confirmed co-located cells: "
                                 f"{', '.join(sorted(c['cell'] for c in group))}"})
     return out
 
