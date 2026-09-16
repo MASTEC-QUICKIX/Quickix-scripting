@@ -1375,10 +1375,19 @@ def build_primary_secondary_node_list(ciq_wb):
     checked_nodes or any existing check, it only supplies both node names
     for the field-value display table below."""
     out = []
-    for m in cer.mixed_mode_rows(ciq_wb):
+    mm_rows_all = cer.mixed_mode_rows(ciq_wb)
+    for m in mm_rows_all:
         build_as = _norm(m.get("Node to be built as")).upper()
         e_name = _norm(m.get("eNodeB Name"))
-        g_name = _norm(m.get("gNodeB Name"))
+        # g_name straight off this row can be blank (Name field wiped,
+        # gNBId wiped, or both) while a real Secondary still sits in EDP/
+        # RFDS/gNB Info/5G Info — same recovery cer.resolve_g_name already
+        # does for the run_validation.py pipeline, reused here so this
+        # table (and, via edp_node_ids below, the checklist's own EDP-check
+        # rows) don't silently drop that Secondary the same way. rfds_pages/
+        # rfds_bytes aren't available in this call chain, so only the
+        # gNBId and sole-candidate-elimination tiers apply here.
+        g_name = _norm(m.get("gNodeB Name")) or _norm(cer.resolve_g_name(ciq_wb, m, e_name, None, None, mm_rows_all) or "")
         bbu_mode = _norm(m.get("BBU Mode")).upper()
         if e_name and e_name.upper() == build_as:
             primary, secondary = e_name, g_name
@@ -1393,6 +1402,7 @@ def build_primary_secondary_node_list(ciq_wb):
             secondary_tech = "NR" if secondary == g_name else ("LTE" if secondary == e_name else None)
             out.append({"node": secondary, "role": "Secondary", "tech": secondary_tech, "log_alias": primary})
     return out
+
 
 
 def build_edp_field_table(edp_rows, node_role_list):
