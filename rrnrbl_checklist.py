@@ -1749,6 +1749,23 @@ def _du_type_by_node(ciq_wb):
     return out
 
 
+def bbu_type_vs_node_model_mismatches(ciq_wb, edp_rows, node_ids):
+    """Per-node mismatch list for Row 22, exposed so the Consolidated
+    Report's EDP section can reuse this one detection instead of
+    re-deriving it."""
+    du_type = _du_type_by_node(ciq_wb)
+    out = []
+    for nid in node_ids:
+        board = du_type.get(nid)
+        rows = cer.edp_rows_for_site(edp_rows, nid)
+        edp_model = _norm(rows[0].get("NODE_MODEL")) if rows else ""
+        if not board or not edp_model:
+            continue
+        if board not in edp_model:
+            out.append({"node": nid, "note": f"CIQ board '{board}' not found in EDP NODE_MODEL '{edp_model}'"})
+    return out
+
+
 def _bbu_type_vs_node_model_status(ciq_wb, edp_rows, node_ids):
     """CIQ hardware board number (5G Info/eNB/gNB Info 'DU type'/'BBU Type')
     vs EDP NODE_MODEL. Confirmed against real EDP data in this conversation:
@@ -1758,20 +1775,18 @@ def _bbu_type_vs_node_model_status(ciq_wb, edp_rows, node_ids):
     column names suggest. This check is deliberately wired to NODE_MODEL,
     not BBU_TYPE, for that reason."""
     du_type = _du_type_by_node(ciq_wb)
-    bad, checked = [], 0
+    checked = 0
     for nid in node_ids:
         board = du_type.get(nid)
         rows = cer.edp_rows_for_site(edp_rows, nid)
         edp_model = _norm(rows[0].get("NODE_MODEL")) if rows else ""
-        if not board or not edp_model:
-            continue
-        checked += 1
-        if board not in edp_model:
-            bad.append(f"{nid}: CIQ board '{board}' not found in EDP NODE_MODEL '{edp_model}'")
+        if board and edp_model:
+            checked += 1
+    bad = bbu_type_vs_node_model_mismatches(ciq_wb, edp_rows, node_ids)
     if not checked:
         return "unknown", "No CIQ board type / EDP NODE_MODEL data to check."
     if bad:
-        return "mismatch", "; ".join(bad[:6])
+        return "mismatch", "; ".join(f"{b['node']}: {b['note']}" for b in bad[:6])
     return "match", f"{checked} node(s) checked, all pass."
 
 
@@ -1782,16 +1797,18 @@ def _bbu_type_vs_node_model_status(ciq_wb, edp_rows, node_ids):
 _BBU_MODE_TO_EDP_TYPE = {"MMBB": "MIXED MODE", "TMBB": "TRIPLE MODE"}
 
 
-def _node_model_vs_bbu_type_status(ciq_wb, edp_rows, node_ids):
-    """CIQ Mixed Mode Info 'BBU Mode' (MMBB/SMBB/TMBB) vs EDP BBU_TYPE."""
+def node_model_vs_bbu_type_mismatches(ciq_wb, edp_rows, node_ids):
+    """Per-node mismatch list for Row 23, exposed so the Consolidated
+    Report's EDP section can reuse this one detection instead of
+    re-deriving it. Returns (bad, manual) — manual holds SMBB nodes
+    (no fixed expected EDP string confirmed yet), not a real mismatch."""
     mm_rows = cer.mixed_mode_rows(ciq_wb) if ciq_wb else []
     mode_by_node = {}
     for r in mm_rows:
         n = _norm(r.get("Node to be built as")) or _norm(r.get("eNodeB Name")) or _norm(r.get("gNodeB Name"))
         if n:
             mode_by_node[n] = _norm(r.get("BBU Mode")).upper()
-
-    bad, checked, manual = [], 0, []
+    bad, manual = [], []
     for nid in node_ids:
         mode = mode_by_node.get(nid)
         rows = cer.edp_rows_for_site(edp_rows, nid)
@@ -1800,20 +1817,38 @@ def _node_model_vs_bbu_type_status(ciq_wb, edp_rows, node_ids):
             continue
         expected = _BBU_MODE_TO_EDP_TYPE.get(mode)
         if expected is None:
-            manual.append(f"{nid}: SMBB — EDP BBU_TYPE is '{edp_type}', no fixed expected string confirmed for SMBB yet")
+            manual.append({"node": nid, "note": f"SMBB — EDP BBU_TYPE is '{edp_type}', no fixed expected string confirmed for SMBB yet"})
             continue
-        checked += 1
         if edp_type.upper() != expected:
-            bad.append(f"{nid}: CIQ {mode} expects EDP BBU_TYPE '{expected}', got '{edp_type}'")
+            bad.append({"node": nid, "note": f"CIQ {mode} expects EDP BBU_TYPE '{expected}', got '{edp_type}'"})
+    return bad, manual
+
+
+def _node_model_vs_bbu_type_status(ciq_wb, edp_rows, node_ids):
+    """CIQ Mixed Mode Info 'BBU Mode' (MMBB/SMBB/TMBB) vs EDP BBU_TYPE."""
+    mm_rows = cer.mixed_mode_rows(ciq_wb) if ciq_wb else []
+    mode_by_node = {}
+    for r in mm_rows:
+        n = _norm(r.get("Node to be built as")) or _norm(r.get("eNodeB Name")) or _norm(r.get("gNodeB Name"))
+        if n:
+            mode_by_node[n] = _norm(r.get("BBU Mode")).upper()
+    checked = 0
+    for nid in node_ids:
+        mode = mode_by_node.get(nid)
+        rows = cer.edp_rows_for_site(edp_rows, nid)
+        edp_type = _norm(rows[0].get("BBU_TYPE")) if rows else ""
+        if mode and edp_type and _BBU_MODE_TO_EDP_TYPE.get(mode) is not None:
+            checked += 1
+    bad, manual = node_model_vs_bbu_type_mismatches(ciq_wb, edp_rows, node_ids)
     if bad:
-        return "mismatch", "; ".join(bad[:6])
+        return "mismatch", "; ".join(f"{b['node']}: {b['note']}" for b in bad[:6])
     if checked:
         note = f"{checked} node(s) checked, all pass."
         if manual:
             note += f" ({len(manual)} SMBB node(s) need manual check — see note)"
         return "match", note
     if manual:
-        return "manual", "; ".join(manual[:6])
+        return "manual", "; ".join(m["note"] for m in manual[:6])
     return "unknown", "No CIQ BBU Mode / EDP BBU_TYPE data to check."
 
 
