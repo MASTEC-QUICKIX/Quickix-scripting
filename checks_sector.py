@@ -532,23 +532,44 @@ def check_port_uniqueness(node_id, ciq_wb):
 
     xmu_ports = set().union(*xmu_ports_by_prefix.values()) if xmu_ports_by_prefix else set()
 
-    # Board/port is ONE physical RI-port namespace regardless of which tab
-    # names the cell: a TMBB/MMBB node's 4G and 5G cells sit on the SAME
-    # DU/BBU hardware (confirmed elsewhere - check_gnb_du_type_vs_5g_bbu_type
+    # Node identity for scoping: SAME (node, port) is a real clash only when
+    # both cells sit on the SAME node. Two or three different nodes can
+    # legitimately reuse the same board TYPE and the same port letter -
+    # board type/number alone must never be treated as a global namespace.
+    # Reuse the Mixed Mode Info prefix map already built above (eNodeB
+    # Name / gNodeB Name are the node's own identity, covering 4G+5G cells
+    # of one physical node the same way _xmu_ports_for_cell() does).
+    node_prefixes = sorted({p for p in xmu_ports_by_prefix} |
+                            {str(mm.get('eNodeB Name') or '').strip() for mm in mm_rows} |
+                            {str(mm.get('gNodeB Name') or '').strip() for mm in mm_rows},
+                            key=len, reverse=True)
+    node_prefixes = [p for p in node_prefixes if p]
+
+    def _node_key_for_cell(cell):
+        for prefix in node_prefixes:
+            if cell and str(cell).startswith(prefix):
+                return prefix
+        return str(cell)  # unmatched cell -> its own key, never collides with anything else
+
+    def _colo_set(row):
+        raw = str(row.get('Co-Located Technology Cell') or '').strip().upper()
+        return {c.strip() for c in raw.split(',') if c.strip() and c.strip() not in ('NA', 'N/A', 'NOT USED')}
+
+    # Board/port is the physical RI-port namespace, but ONLY within one
+    # node - a TMBB/MMBB node's 4G and 5G cells sit on the SAME DU/BBU
+    # hardware (confirmed elsewhere - check_gnb_du_type_vs_5g_bbu_type
     # relies on the same board id agreeing across eNB Info 'DU type', gNB
-    # Info 'DU type', and 5G Info 'BBU Type'). Real gap this closes:
-    # eUtran Parameters' 4G cells ('DUS / XMU' + 'DUS / XMU Port'/'...
-    # Port Expansion') were never in this map at all - a 4G cell reusing
-    # another 4G cell's port, or a 4G cell landing on a port an XMU or a
-    # 5G cell already owns on the SAME board, was invisible here. Each
-    # entry below is (cell, board, [that cell's own port values]).
+    # Info 'DU type', and 5G Info 'BBU Type'). Each entry below is
+    # (cell, board, [that cell's own port values], declared Co-Located set).
     cell_ports = [(row.get('NRCellDU'), str(row.get('BB/XMU', '')).strip(),
                    [str(row.get(pc)).strip() for pc in port_cols
-                    if row.get(pc) is not None and str(row.get(pc)).strip()])
+                    if row.get(pc) is not None and str(row.get(pc)).strip()],
+                   _colo_set(row))
                   for row in fiveg_rows]
     cell_ports += [(row.get('EutranCellFDDId'), str(row.get('DUS / XMU', '')).strip(),
                     [str(row.get(pc)).strip() for pc in ('DUS / XMU Port', 'DUS / XMU Port Expansion')
-                     if row.get(pc) is not None and str(row.get(pc)).strip().upper() not in ('', 'N/A', 'NOT USED')])
+                     if row.get(pc) is not None and str(row.get(pc)).strip().upper() not in ('', 'N/A', 'NOT USED')],
+                    _colo_set(row))
                    for row in _rows(ciq_wb, 'eUtran Parameters')]
 
     shared_radio_group = {}  # cell -> group key, for 6472-sharing cells only
@@ -560,19 +581,25 @@ def check_port_uniqueness(node_id, ciq_wb):
             if cell and sef:
                 shared_radio_group[cell] = sef
 
+    # Primary key is (node, port) - NOT (board, port). Board is still
+    # recorded per cell so the message/verdict can tell a same-board clash
+    # (genuine physical port collision) apart from a cross-board reuse on
+    # the same node (only OK if mutually declared Co-Located, or exempt
+    # under the 6472 sharing-radio rule).
     usage = {}
-    for cell, bbu, ports in cell_ports:
+    for cell, bbu, ports, colo in cell_ports:
         is_xmu = 'XMU' in bbu.upper()
+        node_key = _node_key_for_cell(cell)
         for val in ports:
-            key = (bbu, val)
-            usage.setdefault(key, []).append(cell)
+            key = (node_key, val)
+            usage.setdefault(key, []).append((cell, bbu, colo))
             if is_xmu:
                 xmu_ports.add(val)
 
     # Blueprint's RI port table has TWO port columns: LTE cells use one RI
     # port (second shows NA), 5G cells can use two. Collect each cell's full
     # port list so the second can be rendered.
-    ports_by_cell = {cell: ports for cell, bbu, ports in cell_ports if cell}
+    ports_by_cell = {cell: ports for cell, bbu, ports, colo in cell_ports if cell}
 
     # XMU ports are keyed separately in `usage` (by their own BB/XMU value), so
     # a sector reusing an XMU port never collides there and its own row would
@@ -583,7 +610,7 @@ def check_port_uniqueness(node_id, ciq_wb):
     # over 4G cells too now, same reason as the `usage` map above - a 4G
     # cell landing on an XMU's declared port is just as real a conflict.
     xmu_conflicts = {}
-    for cell, bbu, ports in cell_ports:
+    for cell, bbu, ports, colo in cell_ports:
         if 'XMU' in bbu.upper():
             continue
         own_xmu_ports = _xmu_ports_for_cell(cell)
@@ -592,22 +619,38 @@ def check_port_uniqueness(node_id, ciq_wb):
                 xmu_conflicts[(cell, val)] = bbu
 
     results = []
-    for (bbu, port), cells in usage.items():
-        # if every cell sharing this port belongs to the same 6472 shared-radio
-        # group, the sharing is expected (rule #9) - not a violation.
+    for (node_key, port), entries in usage.items():
+        cells = [c for c, bbu, colo in entries]
+        boards = {bbu for c, bbu, colo in entries}
+        same_board = len(boards) == 1
+        # 6472 sharing-radio exemption only ever applies within one board.
         groups = {shared_radio_group.get(c) for c in cells}
-        exempt = len(cells) > 1 and len(groups) == 1 and None not in groups
-        for cell in cells:
+        radio_exempt = len(cells) > 1 and len(groups) == 1 and None not in groups
+        # Cross-board reuse on the same node is only OK if EVERY cell in the
+        # group declares every other cell in its own Co-Located field -
+        # a one-sided or missing declaration is not a confirmed pairing.
+        colo_exempt = (not same_board and len(cells) > 1 and
+                       all(all(other == c or other.upper() in colo for other in cells)
+                           for c, bbu, colo in entries))
+        exempt = radio_exempt or colo_exempt
+        for cell, bbu, colo in entries:
             _pl = [p for p in ports_by_cell.get(cell, []) if p != port]
             xmu_clash = (cell, port) in xmu_conflicts
-            if len(cells) > 1 and not exempt:
+            if len(cells) > 1 and not exempt and same_board:
                 status = 'MISMATCH'
                 note = f"Port {port} on {bbu} shared by multiple sectors: {cells}"
+            elif len(cells) > 1 and not exempt and not same_board:
+                status = 'MISMATCH'
+                note = (f"Port {port} reused across different boards on this node "
+                        f"({', '.join(sorted(boards))}) without a mutual Co-Located "
+                        f"Technology Cell declaration: {cells}")
             elif xmu_clash:
                 status = 'MISMATCH'
                 note = f"Port {port} is assigned to an XMU on this node but reused by this sector."
-            elif exempt:
+            elif radio_exempt:
                 status, note = 'MATCH', 'Port shared as expected (6472 sharing radio, per rule #9).'
+            elif colo_exempt:
+                status, note = 'MATCH', f'Port shared across boards ({", ".join(sorted(boards))}) as declared in Co-Located Technology Cell.'
             else:
                 status, note = 'MATCH', 'Port unique.'
             results.append({'rule': '#11/#26/#27', 'node': node_id, 'cell': cell, 'status': status,
