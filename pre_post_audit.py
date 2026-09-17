@@ -192,6 +192,7 @@ def _amos_lte_index(node_logs_text):
         cfg = cs._extract_sector_config(text)
         radio_by_cell = pe.extract_cell_to_radio(text)
         sc_by_cell = _extract_sector_carrier_index(text)
+        cell_range_by_cell = pe.extract_cell_range(text)
         for cell in cells:
             p = params.get(cell, {})
             c = cfg.get(cell, {})
@@ -203,6 +204,7 @@ def _amos_lte_index(node_logs_text):
                 "EARFCN_DL": p.get("earfcndl", ""), "EARFCN_UL": p.get("earfcnul", ""),
                 "Pwr": c.get("power", ""), "TX": c.get("tx", ""), "RX": c.get("rx", ""),
                 "Model": pe._short_radio_name(radio_by_cell.get(cell)) or "",
+                "CellRange": cell_range_by_cell.get(cell, ""),
             })
     return flat
 
@@ -284,6 +286,7 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
         tx_text, tx_ok = _cmp(_nz(match["TX"]) if match else "", c.get("noOfTxAntennas"))
         rx_text, rx_ok = _cmp(_nz(match["RX"]) if match else "", c.get("noOfRxAntennas"))
         rru_text, rru_ok = _cmp(_nz(match["Model"]) if match else "", c.get("RRU type"), is_rru=True)
+        cellrange_text, cellrange_ok = _cmp(_nz(match["CellRange"]) if match else "", c.get("cellRange"))
 
         result.append({
             "node": c.get("Node") or final_pfx, "cell": cell_full,
@@ -292,6 +295,7 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
             "dl": dl_text, "_dl_ok": dl_ok, "ul": ul_text, "_ul_ok": ul_ok,
             "power": pwr_text, "_power_ok": pwr_ok, "tx": tx_text, "_tx_ok": tx_ok,
             "rx": rx_text, "_rx_ok": rx_ok, "rru": rru_text, "_rru_ok": rru_ok,
+            "cellrange": cellrange_text, "_cellrange_ok": cellrange_ok,
             "link": "-", "comment": comment, "row_type": row_type,
         })
     return result
