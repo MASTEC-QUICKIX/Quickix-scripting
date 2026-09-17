@@ -1001,7 +1001,8 @@ def _mm_row(cell, source, param, left_label, left, right):
             "comments": f"{left_label} - {left} | {'EDP' if source.endswith('EDP') else 'CIQ'} - {right}"}
 
 
-def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_rows=None, edp_node_ids=None, ciq_wb=None):
+def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_rows=None, edp_node_ids=None,
+                                    ciq_wb=None, node_logs_text=None, node_role_list=None):
     """Flat, parameter-level mismatch list for the consolidated report.
 
     Three comparison families, all reduced to the same four columns
@@ -1029,6 +1030,11 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
             rows.append({"cell": node, "source": "KGET vs EDP", "param": "EDP Published",
                          "comments": f"EDP is not published for {node}"})
 
+        # ── cabinet (Checklist row 21) ─────────────────────────────────
+        for b in rc.edp_cabinet_mismatches(edp_rows or [], edp_node_ids):
+            rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "Cabinet",
+                         "comments": b["note"]})
+
         # ── CIQ board type vs EDP NODE_MODEL (Checklist row 22) ────────
         for b in rc.bbu_type_vs_node_model_mismatches(ciq_wb, edp_rows or [], edp_node_ids):
             rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "BBU Type (NODE_MODEL)",
@@ -1039,6 +1045,32 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
         for b in _r23_bad:
             rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "BBU Mode (BBU_TYPE)",
                          "comments": b["note"]})
+
+        # ── siad_port_size_bbu (Checklist row 24) ──────────────────────
+        for b in rc.siad_port_size_mismatches(node_logs_text, ciq_wb, edp_rows or [], edp_node_ids):
+            rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "SIAD_PORT_SIZE_BBU",
+                         "comments": b["note"]})
+
+        # ── siad_port_facing_bbu (Checklist row 25) ────────────────────
+        for b in rc.edp_port_facing_mismatches(edp_rows or [], edp_node_ids):
+            rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "SIAD_PORT_FACING_BBU",
+                         "comments": b["note"]})
+
+        # ── Bearer/OAM VLAN & IPv6 fields, Pre vs EDP (Checklist rows
+        # 26-31) — one call per field, same pre_key/edp_col mapping the
+        # checklist itself uses. ─────────────────────────────────────
+        for pre_key, edp_col, param, is_ipv6 in (
+            ("bearer_vlan", "BEARER_ENODEB_SB_VLAN_ID", "bearer_enodeb_sb_vlan_id", False),
+            ("bearer_router_ip", "IPV6_SIAD_BEARER_IP_DEF_ROUTER", "ipv6_siad_bearer_ip_def_router", True),
+            ("bearer_ip", "IPV6_ENODEB_BEARER_IP", "ipv6_enodeb_bearer_ip", True),
+            ("oam_vlan", "OAM_ENODEB_SIAD_OAM_VLAN", "oam_enodeb_siad_oam_vlan", False),
+            ("oam_router_ip", "IPV6_SIAD_OAM_IP_DEF_ROUTER", "ipv6_siad_oam_ip_def_router", True),
+            ("oam_ip", "IPV6_ENODEB_OAM_IP", "ipv6_enodeb_oam_ip", True),
+        ):
+            for b in rc.pre_vs_edp_field_mismatches(node_logs_text, node_role_list or [],
+                                                     edp_rows or [], pre_key, edp_col, is_ipv6):
+                rows.append({"cell": f"{b['node']} ({b['role']})", "source": "KGET vs EDP", "param": param,
+                             "comments": b["note"]})
 
     # ── RFDS vs CIQ ────────────────────────────────────────────────────
     for r in grouped_rows or []:
@@ -1678,7 +1710,9 @@ with tab_consolidated:
         if node_logs_text else [],
         edp_rows=edp_rows,
         edp_node_ids=([n["node"] for n in state["node_role_list"]] or checked_nodes),
-        ciq_wb=ciq_wb))
+        ciq_wb=ciq_wb,
+        node_logs_text=node_logs_text,
+        node_role_list=state["node_role_list"]))
 
     # category heading -> which "source" values belong under it
     MM_GROUPS = [
