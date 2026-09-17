@@ -192,8 +192,8 @@ def build_lte_ciq_rows(ciq_wb, node_id_col_map=None):
             continue
         cells = ", ".join(str(rows[i].get("EutranCellFDDId") or "") for i in idxs)
         for i in idxs:
-            colo = str(rows[i].get("Co-Located Technology Cell") or "").strip()
-            if not colo:
+            colo = str(rows[i].get("Co-Located Technology Cell") or "").strip().upper()
+            if colo in ("", "NA", "N/A", "NOT USED"):
                 port = str(rows[i].get("DUS / XMU Port") or "").strip()
                 add(i, f"Shared Radio Port (Port={port} used by: {cells}) \u2014 Add to Co-Located field")
 
