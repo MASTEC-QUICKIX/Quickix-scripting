@@ -274,8 +274,8 @@ def _agg_row47(cells_results, cell_id_results, radio_results, nrcelldu_results, 
             rule = r.get("rule")
             if rule == "#6/#18":
                 return "not found in RFDS" if r.get("note") == "Not found in RFDS." else "found in RFDS but not in CIQ"
-            if rule == "#6/#24":
-                return "Cell ID mismatch"
+            if rule == "#6/#37":
+                return "Cell ID mismatch (CIQ vs RFDS)"
             if rule == "#6":
                 return "RRU type mismatch"
             if rule == "#39":
@@ -393,16 +393,17 @@ def _agg_cell_details(cells_results, cell_id_results, radio_results):
     except cells failing for the SAME reason on the SAME node are grouped
     into one summary line (see _group_bad_by_node_reason) instead of
     listed cell-by-cell — covers cell presence BOTH directions ('not
-    found in RFDS' / 'found in RFDS but not in CIQ'), Cell ID mismatch,
-    and RRU type mismatch — matching this row's own title. Applies to any
-    band/sector, not just DOD_BWE (N77 carrier '_3') — confirmed: the
-    grouping is about the failure reason itself repeating, not which band
-    it happens to be.
+    found in RFDS' / 'found in RFDS but not in CIQ'), Cell ID mismatch
+    (CIQ vs RFDS RCN — check_cell_id_vs_rfds_rcn, NOT the Pre-vs-CIQ
+    cell_id_vs_rfds that rows 49/72/90 use), and RRU type mismatch —
+    matching this row's own title. Applies to any band/sector, not just
+    DOD_BWE (N77 carrier '_3') — confirmed: the grouping is about the
+    failure reason itself repeating, not which band it happens to be.
 
     Reason is dispatched by each result's 'rule' tag (#6/#18 = cell
-    presence, #6/#24 = Cell ID, #6 = RRU), not by matching note text —
-    Cell ID's mismatch note embeds live Pre/CIQ/RFDS values with no fixed
-    string to match on, unlike the other two."""
+    presence, #6/#37 = Cell ID CIQ vs RFDS, #6 = RRU), not by matching
+    note text — Cell ID's mismatch note embeds live CIQ/RFDS values with
+    no fixed string to match on, unlike the other two."""
     all_results = cells_results + cell_id_results + radio_results
     if not all_results:
         return "unknown", "No data (check did not run for this site)."
@@ -418,8 +419,8 @@ def _agg_cell_details(cells_results, cell_id_results, radio_results):
         rule = r.get("rule")
         if rule == "#6/#18":
             return "not found in RFDS" if r.get("note") == "Not found in RFDS." else "found in RFDS but not in CIQ"
-        if rule == "#6/#24":
-            return "Cell ID mismatch"
+        if rule == "#6/#37":
+            return "Cell ID mismatch (CIQ vs RFDS)"
         if rule == "#6":
             return "RRU type mismatch"
         return "mismatch"
@@ -1112,7 +1113,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (35, "RFDS Checks", None, "JobDetail", "Radio", None),
         (36, "RFDS Checks", None, "NonRFInventoryDetails(Final)", "Radio", None),
         (37, "RFDS Checks", None, "CellDetails(Final) -- CellID / RCN /RRH", "Radio",
-         lambda: _agg_cell_details(results.get("cells_vs_rfds", []), results.get("cell_id_vs_rfds", []), results.get("radio_type", []))),
+         lambda: _agg_cell_details(results.get("cells_vs_rfds", []), results.get("cell_id_vs_rfds_rcn", []), results.get("radio_type", []))),
         (38, "RFDS Checks", None, "AntennaPositionDetails -- Model / LinkedCells / Azimuth(Design)  / Total Postions", "Radio", None),
         (39, "RFDS Checks", None, "Plumbing Diagram -- TxRx / TMA / Radio - RET Controller / Total Postions", "Radio", None),
 
@@ -1134,7 +1135,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (55, "CIQ tabs checks", "5g info", "VoNR", "NR/Radio", None),
         (56, "CIQ tabs checks", "5g info", "Make sure  BBU Type should match with RFDS and CIQ - BBU Type", "NR/Radio", lambda: _agg(board_type)),
         (57, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU/cellLocalId/RRU Type/ BeamDirection (Azimuth) /Antenna Type /Electrical Tilt must same as RFDS ", "Radio",
-         lambda: _agg_row47(results.get("cells_vs_rfds", []), results.get("cell_id_vs_rfds", []), results.get("radio_type", []),
+         lambda: _agg_row47(results.get("cells_vs_rfds", []), results.get("cell_id_vs_rfds_rcn", []), results.get("radio_type", []),
                              results.get("nrcelldu_nrcellcu", []), [r for r in results.get("antenna_type_rfds", []) if r.get("rule") == "#47"])),
         (58, "CIQ tabs checks", "5g info", "NR TAC - Existing sectors - ENM", "NR/Radio", lambda: _nsa_sa_status(results.get("nr_tac", []))),
         (59, "CIQ tabs checks", "5g info", " NR TAC   - For newly added Carriers-  NSA= 0 & SA =7 digit value", "NR/Radio", lambda: _nr_sa_tac_status(ciq_wb)),
