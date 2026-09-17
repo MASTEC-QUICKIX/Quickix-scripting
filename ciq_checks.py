@@ -81,12 +81,18 @@ def _corrective_action(warning):
     return "Verify and correct in the CIQ"
 
 
-def build_lte_ciq_rows(ciq_wb, node_id_col_map=None):
-    """One row per eUtran Parameters entry: Node, Cell, PCI, Electrical
-    Tilt, RBB Type Verification, RIPORT, Comments — matches QUICKIX HTML's
-    LTE E-UTRAN Parameters card (Link column is built by the caller via
-    build_link_map(), since Link needs the SAME node+RRU map both LTE and
-    5G share)."""
+def build_lte_ciq_rows(ciq_wb, node_id_col_map=None, rbb_results=None):
+    """One row per eUtran Parameters entry: Node, Cell, PCI, Cell ID,
+    Electrical Tilt, RBB Type Verification, RIPORT, Comments — matches
+    QUICKIX HTML's LTE E-UTRAN Parameters card (Link column is built by
+    the caller via build_link_map(), since Link needs the SAME node+RRU
+    map both LTE and 5G share).
+
+    rbb_results: checks_sector.check_rbb_tx_isdlonly_4g's own output
+    (already the canonical RBB-vs-TX/RX/ISDLONLY/Radio-Port check, wired
+    into Consolidated Report's CIQ Sanity Check and Checklist row 71) —
+    passed in and matched by cell rather than re-implemented here, so
+    this table and that check can never silently drift apart."""
     rows = cer.sheet_rows_as_dicts(ciq_wb["eUtran Parameters"]) if "eUtran Parameters" in ciq_wb.sheetnames else []
     if not rows:
         return []
@@ -273,31 +279,20 @@ def build_lte_ciq_rows(ciq_wb, node_id_col_map=None):
         if not t.is_integer():
             add(i, f'Electrical tilt is not integer for {r.get("EutranCellFDDId")} (value={tilt})')
 
-    # ── RBB type vs noOfTxAntennas/noOfRxAntennas/Radio Port — CIQ-internal
-    # consistency (same rule as checks_sector.check_rbb_tx_isdlonly_4g /
-    # Checklist row 58), but that function only feeds the RRNRBL Checklist
-    # tab's summary line ("N sector(s) with RBB/TX-RX mismatch (band)") —
-    # this table shows RBB Type Verification/TX/RX side by side and had no
-    # comment wired to them at all, so a real mismatch here was invisible
-    # on the CIQ Checks tab even though the Checklist tab flagged it. ──
+    # ── RBB type vs noOfTxAntennas/noOfRxAntennas/Radio Port — reuse the
+    # canonical checks_sector.check_rbb_tx_isdlonly_4g result (Checklist
+    # row 71 / Consolidated Report's CIQ Sanity Check), matched by cell,
+    # rather than a second independent implementation here. An earlier
+    # version re-derived this inline, which duplicated that check's exact
+    # logic in a second place with no guarantee the two would stay in
+    # sync. ──
+    rbb_note_by_cell = {r.get("cell"): r.get("note") for r in (rbb_results or [])
+                         if r.get("status") == "MISMATCH" and r.get("cell")}
     for i, r in enumerate(rows):
-        rbb = r.get("RBB type")
-        rbb_txrx = pe.parse_rbb_txrx(rbb)
-        ciq_tx = str(r.get("noOfTxAntennas", "") or "").strip()
-        ciq_rx = str(r.get("noOfRxAntennas", "") or "").strip()
-        ciq_txrx = f"{ciq_tx}x{ciq_rx}" if ciq_tx and ciq_rx else None
-        isdlonly = str(r.get("ISDLONLY", "") or "").strip().upper()
-        radio_port = str(r.get("Radio Port", "") or "").strip()
-        rbb_link = pe.parse_rbb_link(rbb)
-        radio_port_link = "Double" if "/" in radio_port else ("Single" if radio_port else None)
-        if rbb_txrx is None:
-            add(i, f"RBB type '{rbb}' does not match the expected RBB<TX><RX> pattern.")
-        elif ciq_txrx and rbb_txrx != ciq_txrx:
-            add(i, f"RBB type {rbb} implies TX/RX {rbb_txrx} but noOfTxAntennas/noOfRxAntennas={ciq_txrx}.")
-        if ciq_tx == "0" and isdlonly != "TRUE":
-            add(i, f"noOfTxAntennas=0 but ISDLONLY='{isdlonly or 'blank'}' (expected TRUE).")
-        if rbb_link and radio_port_link and rbb_link != radio_port_link:
-            add(i, f"RBB type {rbb} implies {rbb_link} link but Radio Port='{radio_port}' is {radio_port_link}.")
+        cell = r.get("EutranCellFDDId")
+        note = rbb_note_by_cell.get(cell)
+        if note:
+            add(i, note)
 
     # ── Antenna uniqueness — reuse this project's own confirmed check.
     # MISMATCH only: MATCH means the pairing is correctly configured
@@ -329,11 +324,13 @@ def build_lte_ciq_rows(ciq_wb, node_id_col_map=None):
         cell_comments = comments[i]
         out.append({
             "node": node_name, "cell": r.get("EutranCellFDDId"), "pci": r.get("PCI"),
+            "cell_id": r.get("cellId"),
             "electrical_tilt": r.get("electricalAntennaTilt"), "rbb_type": r.get("RBB type"),
             "tx": r.get("noOfTxAntennas"), "rx": r.get("noOfRxAntennas"),
             "riport": riport, "link": "-",  # filled in by build_link_map()
             "comments": cell_comments,
             "comments_html": _format_warnings(cell_comments),
+            "status": "MISMATCH" if cell_comments else "MATCH",
             "_enb_id": r.get("eNBId"), "_rru_type": r.get("RRU type"), "_radio_port": r.get("Radio Port"),
             # RIport (DUS/XMU + Port + Port Expansion) is the real per-
             # physical-radio identifier on this sheet, NOT "RRU type" (a
@@ -466,10 +463,12 @@ def build_nr_ciq_rows(ciq_wb):
         out.append({
             "node": node_name, "cell": r.get("NRCellDU"), "sef": r.get("SectorEquipmentFunction"),
             "fru": r.get("RRU FieldReplaceableUnit"), "nr_pci": r.get("nRPCI"),
+            "cell_id": r.get("cellLocalId"),
             "electrical_tilt": r.get("Electrical Tilt"), "rbb_type": r.get("RBB Type"),
             "riport": riport, "link": "-",
             "comments": cell_comments,
             "comments_html": _format_warnings(cell_comments),
+            "status": "MISMATCH" if cell_comments else "MATCH",
             "_gnb_id": r.get("gNBId"), "_rru_type": r.get("RRU Type"), "_radio_port": r.get("Radio Port"),
             "_fru": r.get("RRU FieldReplaceableUnit"),  # the actual physical unit id (e.g. 'RRU-N005A') —
                                                           # 'RRU Type' here is a shared MODEL name across
@@ -556,4 +555,13 @@ def apply_link_and_sharing(lte_rows, nr_rows):
 
     _sharing_pass(lte_rows, "cell")
     _sharing_pass(nr_rows, "cell")
+
+    # 'status' drives the CIQ Checks tab's row highlighting (render_table's
+    # status_key) — recomputed HERE, after every comment source (including
+    # the Sharing Radio pass just above) has had its say, so a row that
+    # only picked up a late Sharing Radio comment still highlights red
+    # rather than showing stale MATCH from before this pass ran.
+    for r in lte_rows + nr_rows:
+        r["status"] = "MISMATCH" if r.get("comments") else "MATCH"
+
     return lte_rows, nr_rows
