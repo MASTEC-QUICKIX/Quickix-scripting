@@ -1159,10 +1159,13 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
 
     Pass/fail is Pre vs CIQ ONLY (confirmed) — RFDS's RCN is shown in the
     note for reference on every result, match or mismatch, but does NOT
-    affect status. An earlier version required RFDS to agree too, which
-    conflated two different questions (does CIQ match what's already
-    built (Pre)? vs does CIQ match what RFDS's design record says?) into
-    one pass/fail."""
+    affect status. This is deliberate and shared: checklist rows 49/72/90
+    (nRTAC/cellLocalId, cellId, and sector-movement cellid checks) all read
+    THIS SAME result list and their own rule-mapping text is explicitly
+    Pre-vs-CIQ — changing this function's pass/fail would silently flip
+    those three rows too. Row 37's own CIQ-vs-RFDS Cell ID requirement is
+    handled separately by check_cell_id_vs_rfds_rcn() below, which this
+    function does not feed."""
     results = []
     cell_details = {}
     if rfds_pages is not None:
@@ -1214,6 +1217,50 @@ def check_cell_id_vs_rfds(node_id, log_text, ciq_wb, rfds_pages, e_name, g_name,
                          'pre': pre_id, 'ciq': ciq_id, 'rfds_rcn': rfds_rcn,
                          'status': 'MATCH' if match else 'MISMATCH',
                          'note': f'Match. (RFDS RCN={rfds_rcn})' if match else f'{where}: Pre={pre_id}, CIQ={ciq_id}, RFDS={rfds_rcn}.'})
+    return results
+
+
+def check_cell_id_vs_rfds_rcn(node_id, ciq_wb, rfds_pages, e_name, g_name):
+    """Row 37's own Cell ID requirement, CIQ vs RFDS ONLY — separate from
+    check_cell_id_vs_rfds() above, which is Pre-vs-CIQ and feeds three
+    OTHER checklist rows (49/72/90) that must not be affected by this.
+
+    RFDS's RCN column is the numeric Cell ID, confirmed identical to CIQ's
+    cellId/cellLocalId on real data (HXL00147_7A_1: CIQ cellId=15, RFDS
+    RCN=15; HXIN090147F_...N077A_1: CIQ cellLocalId=25, RFDS RCN=25). A
+    cell missing from RFDS entirely is skipped (check_cells_vs_rfds
+    already flags that absence) rather than compared against nothing."""
+    results = []
+    if rfds_pages is None:
+        return results
+    import rfds_extract as rf
+    cell_details = rf.extract_cell_details(rfds_pages)
+
+    for row in _rows(ciq_wb, 'eUtran Parameters'):
+        cell = row.get('EutranCellFDDId')
+        if not (cell and e_name and str(cell).startswith(e_name)) or cell not in cell_details:
+            continue
+        ciq_id = str(row.get('cellId', '')).strip()
+        rfds_rcn = cell_details[cell]['rcn']
+        match = bool(ciq_id) and ciq_id == rfds_rcn
+        label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        results.append({'rule': '#6/#37', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'ciq': ciq_id, 'rfds_rcn': rfds_rcn, 'status': 'MATCH' if match else 'MISMATCH',
+                         'note': 'Match.' if match else f'{where}: CIQ Cell ID={ciq_id}, RFDS RCN={rfds_rcn}.'})
+
+    for row in _rows(ciq_wb, '5G Info'):
+        cell = row.get('NRCellDU')
+        if not (cell and g_name and str(cell).startswith(g_name)) or cell not in cell_details:
+            continue
+        ciq_id = str(row.get('cellLocalId', '')).strip()
+        rfds_rcn = cell_details[cell]['rcn']
+        match = bool(ciq_id) and ciq_id == rfds_rcn
+        label, sector = band_label(cell)
+        where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
+        results.append({'rule': '#6/#37', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
+                         'ciq': ciq_id, 'rfds_rcn': rfds_rcn, 'status': 'MATCH' if match else 'MISMATCH',
+                         'note': 'Match.' if match else f'{where}: CIQ Cell ID={ciq_id}, RFDS RCN={rfds_rcn}.'})
     return results
 
 
