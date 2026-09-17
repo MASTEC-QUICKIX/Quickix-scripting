@@ -331,11 +331,21 @@ PRE_POST_ROW_COLORS = {
 
 
 def render_node_pre_post_table(rows):
-    """Node / Status / PTP, whole-row background from row['type']."""
+    """Node / Status / PTP / DSS (Pre) / DSS (Post), whole-row background
+    from row['type']. DSS columns show 'Yes'/'No' colored red/green, or
+    '\u2014' when there's nothing to check for that node (dss_pre/dss_post
+    is None — no Pre log, or no CIQ entry for a deleted node)."""
     if not rows:
         return '<div class="qkx-empty">Run validation with Pre logs and a CIQ to populate this.</div>'
-    head = "".join(f"<th>{h}</th>" for h in ("Node", "Status", "PTP"))
+    head = "".join(f"<th>{h}</th>" for h in ("Node", "Status", "PTP", "DSS (Pre)", "DSS (Post)"))
     body = []
+
+    def _dss_cell(v):
+        if v is None:
+            return '<td>\u2014</td>'
+        color = "#991b1b" if v else "#065f46"
+        return f'<td style="color:{color};font-weight:600;">{"Yes" if v else "No"}</td>'
+
     for r in rows:
         bg = PRE_POST_ROW_COLORS.get(r["type"], "#ffffff")
         status_color = "#b45309" if r["type"] == "change" else "#0f1720"
@@ -343,7 +353,8 @@ def render_node_pre_post_table(rows):
         body.append(
             f'<tr style="background:{bg};"><td>{esc(r["node"])}</td>'
             f'<td style="color:{status_color};font-weight:600;">{esc(r["status"])}</td>'
-            f'<td style="color:{ptp_color};font-weight:600;">{esc(r["ptp"])}</td></tr>'
+            f'<td style="color:{ptp_color};font-weight:600;">{esc(r["ptp"])}</td>'
+            f'{_dss_cell(r.get("dss_pre"))}{_dss_cell(r.get("dss_post"))}</tr>'
         )
     return (f'<div class="qkx-table-wrap"><table class="qkx-table"><thead><tr>{head}</tr></thead>'
             f'<tbody>{"".join(body)}</tbody></table></div>')
@@ -1187,7 +1198,8 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
         _LTE_PP_FIELDS = [("sc", "_sc_ok", "Sector Carrier"), ("cellid", "_cellid_ok", "Cell ID"),
                           ("tac", "_tac_ok", "TAC"), ("bw", "_bw_ok", "BW"), ("dl", "_dl_ok", "EARFCN DL"),
                           ("ul", "_ul_ok", "EARFCN UL"), ("power", "_power_ok", "Power"),
-                          ("tx", "_tx_ok", "TX"), ("rx", "_rx_ok", "RX"), ("rru", "_rru_ok", "RRU")]
+                          ("tx", "_tx_ok", "TX"), ("rx", "_rx_ok", "RX"), ("rru", "_rru_ok", "RRU"),
+                          ("cellrange", "_cellrange_ok", "Cell Range")]
         for r in ppa.compare_lte_cell_level(node_logs_text, ciq_wb):
             if r.get("row_type") == "new":
                 continue  # no Pre match at all - nothing to compare, not a mismatch
@@ -1562,7 +1574,7 @@ with tab_audit:
         section_title("Pre vs Post")
         pre_summary_rows = state["amos_summary_rows"]
         ciq_node_rows = cv.build_node_integration(ciq_wb)
-        node_pre_post_rows = ppa.build_node_pre_post(pre_summary_rows, ciq_node_rows, node_logs_text, edp_rows)
+        node_pre_post_rows = ppa.build_node_pre_post(pre_summary_rows, ciq_node_rows, node_logs_text, edp_rows, ciq_wb=ciq_wb)
         st.markdown(render_node_pre_post_table(node_pre_post_rows), unsafe_allow_html=True)
 
         if node_logs_text:
@@ -1575,7 +1587,7 @@ with tab_audit:
                 ("sc", "_sc_ok", "Sec Carrier"), ("cellid", "_cellid_ok", "Cell ID"), ("tac", "_tac_ok", "TAC"),
                 ("bw", "_bw_ok", "BW"), ("dl", "_dl_ok", "EARFCN DL"), ("ul", "_ul_ok", "EARFCN UL"),
                 ("power", "_power_ok", "Power"), ("tx", "_tx_ok", "TX"), ("rx", "_rx_ok", "RX"),
-                ("rru", "_rru_ok", "RRU Model"),
+                ("rru", "_rru_ok", "RRU Model"), ("cellrange", "_cellrange_ok", "Cell Range"),
             ]), unsafe_allow_html=True)
 
             nr_pp_rows = ppa.compare_nr_cell_level(node_logs_text, ciq_wb)
