@@ -639,27 +639,35 @@ def _edp_found_status(edp_rows, node_ids):
     return "match", f"{len(node_ids)} node(s) all found in EDP."
 
 
-def _edp_cabinet_status(edp_rows, node_ids):
-    """Rule: Primary node cabinet is BBUXX; Secondary is the SAME number
-    suffixed V (BBUXXV). Both directions enforced — a Secondary missing
-    the V, AND a Primary wrongly carrying one, both fail."""
+def edp_cabinet_mismatches(edp_rows, node_ids):
+    """Per-node mismatch list for Row 21, exposed for the Consolidated
+    Report's EDP section (see _edp_cabinet_status for the rule)."""
     rows = _edp_node_rows(edp_rows, node_ids)
-    bad, checked = [], 0
+    out = []
     for nid, r in rows.items():
         if r is None:
             continue
-        checked += 1
         cab = _norm(r.get("CABINET"))
         role = _edp_role(r)
         base_ok = bool(re.match(r"^BBU\s*\d+V?$", cab, re.I)) if cab else False
         ends_v = cab.upper().endswith("V") if cab else False
         ok = base_ok and (ends_v if role == "SECONDARY" else not ends_v)
         if not ok:
-            bad.append(f"{nid}: cabinet '{cab or '(blank)'}' ({role})")
+            out.append({"node": nid, "note": f"cabinet '{cab or '(blank)'}' ({role})"})
+    return out
+
+
+def _edp_cabinet_status(edp_rows, node_ids):
+    """Rule: Primary node cabinet is BBUXX; Secondary is the SAME number
+    suffixed V (BBUXXV). Both directions enforced — a Secondary missing
+    the V, AND a Primary wrongly carrying one, both fail."""
+    rows = _edp_node_rows(edp_rows, node_ids)
+    checked = sum(1 for r in rows.values() if r is not None)
+    bad = edp_cabinet_mismatches(edp_rows, node_ids)
     if not checked:
         return "unknown", "No EDP rows to check."
     if bad:
-        return "mismatch", "; ".join(bad[:6])
+        return "mismatch", "; ".join(f"{b['node']}: {b['note']}" for b in bad[:6])
     return "match", f"{checked} node(s) checked, all pass."
 
 
@@ -683,23 +691,31 @@ def _edp_port_size_status(edp_rows, node_ids, mm_rows_by_node):
     return "match", f"{checked} node(s) checked, all pass."
 
 
-def _edp_port_facing_status(edp_rows, node_ids):
+def edp_port_facing_mismatches(edp_rows, node_ids):
+    """Per-node mismatch list for Row 25, exposed for the Consolidated
+    Report's EDP section."""
     rows = _edp_node_rows(edp_rows, node_ids)
-    bad, checked = [], 0
+    out = []
     for nid, r in rows.items():
         if r is None:
             continue
-        checked += 1
         role = _edp_role(r)
         facing = _norm(r.get("SIAD_PORT_FACING_BBU"))
         if role == "PRIMARY" and not facing:
-            bad.append(f"{nid}: Primary but SIAD_PORT_FACING_BBU is blank")
+            out.append({"node": nid, "note": "Primary but SIAD_PORT_FACING_BBU is blank"})
         if role == "SECONDARY" and facing:
-            bad.append(f"{nid}: Secondary but SIAD_PORT_FACING_BBU is populated ('{facing}')")
+            out.append({"node": nid, "note": f"Secondary but SIAD_PORT_FACING_BBU is populated ('{facing}')"})
+    return out
+
+
+def _edp_port_facing_status(edp_rows, node_ids):
+    rows = _edp_node_rows(edp_rows, node_ids)
+    checked = sum(1 for r in rows.values() if r is not None)
+    bad = edp_port_facing_mismatches(edp_rows, node_ids)
     if not checked:
         return "unknown", "No EDP rows to check."
     if bad:
-        return "mismatch", "; ".join(bad[:6])
+        return "mismatch", "; ".join(f"{b['node']}: {b['note']}" for b in bad[:6])
     return "match", f"{checked} node(s) checked, all pass."
 
 
@@ -1852,13 +1868,10 @@ def _node_model_vs_bbu_type_status(ciq_wb, edp_rows, node_ids):
     return "unknown", "No CIQ BBU Mode / EDP BBU_TYPE data to check."
 
 
-def _pre_vs_edp_field_status(node_logs_text, node_role_list, edp_rows, pre_key, edp_col, is_ipv6=False):
-    """One EDP field, Pre vs EDP, per (node, role) in node_role_list. A node
-    with no uploaded Pre log at all is treated as 'no history to compare'
-    (unknown, not mismatch) — this is what makes an SMBB(Pre)->MMBB(Post)
-    transition safe: the newly-appearing Secondary has no Pre log by
-    definition, and that must not be flagged. Confirmed: highlight ALL 6
-    bearer/OAM fields equally, including both Default Router fields."""
+def _pre_vs_edp_compare(node_logs_text, node_role_list, edp_rows, pre_key, edp_col, is_ipv6=False):
+    """Shared comparison loop for rows 26-31 — returns (checked_count,
+    no_pre_list, bad_list) so the status text and the exposed mismatch
+    list (for Consolidated Report) can never drift against each other."""
     import pre_extract as pe
     import ipaddress
 
@@ -1883,9 +1896,28 @@ def _pre_vs_edp_field_status(node_logs_text, node_role_list, edp_rows, pre_key, 
         checked += 1
         same = _ipv6_eq(pre_v, edp_v) if is_ipv6 else (pre_v == edp_v)
         if not same:
-            bad.append(f"{nid} ({entry['role']}): Pre={pre_v}, EDP={edp_v}")
+            bad.append({"node": nid, "role": entry["role"], "note": f"Pre={pre_v}, EDP={edp_v}"})
+    return checked, no_pre, bad
+
+
+def pre_vs_edp_field_mismatches(node_logs_text, node_role_list, edp_rows, pre_key, edp_col, is_ipv6=False):
+    """Per-node mismatch list backing _pre_vs_edp_field_status (rows 26-31),
+    exposed for the Consolidated Report's EDP section — one detection,
+    two surfaces, same as the other EDP checks above."""
+    _, _, bad = _pre_vs_edp_compare(node_logs_text, node_role_list, edp_rows, pre_key, edp_col, is_ipv6)
+    return bad
+
+
+def _pre_vs_edp_field_status(node_logs_text, node_role_list, edp_rows, pre_key, edp_col, is_ipv6=False):
+    """One EDP field, Pre vs EDP, per (node, role) in node_role_list. A node
+    with no uploaded Pre log at all is treated as 'no history to compare'
+    (unknown, not mismatch) — this is what makes an SMBB(Pre)->MMBB(Post)
+    transition safe: the newly-appearing Secondary has no Pre log by
+    definition, and that must not be flagged. Confirmed: highlight ALL 6
+    bearer/OAM fields equally, including both Default Router fields."""
+    checked, no_pre, bad = _pre_vs_edp_compare(node_logs_text, node_role_list, edp_rows, pre_key, edp_col, is_ipv6)
     if bad:
-        return "mismatch", "; ".join(bad[:6])
+        return "mismatch", "; ".join(f"{b['node']} ({b['role']}): {b['note']}" for b in bad[:6])
     if checked:
         note = f"{checked} node(s) checked, all pass."
         if no_pre:
@@ -1896,6 +1928,27 @@ def _pre_vs_edp_field_status(node_logs_text, node_role_list, edp_rows, pre_key, 
     return "unknown", "No Pre/EDP data to compare."
 
 
+def siad_port_size_mismatches(node_logs_text, ciq_wb, edp_rows, node_ids):
+    """Per-node mismatch list for Row 24, exposed for the Consolidated
+    Report's EDP section."""
+    import pre_extract as pe
+    du_type = _du_type_by_node(ciq_wb)
+    out = []
+    for nid in node_ids:
+        board = du_type.get(nid)
+        log_text = (node_logs_text or {}).get(nid)
+        if not board or not log_text:
+            continue
+        port, pre_size = pe.extract_transport_port_mode(log_text, board)
+        rows = cer.edp_rows_for_site(edp_rows, nid)
+        edp_size = _norm(rows[0].get("SIAD_PORT_SIZE_BBU")) if rows else ""
+        if not pre_size or not edp_size:
+            continue
+        if pre_size.upper() != edp_size.upper():
+            out.append({"node": nid, "note": f"Pre {port}={pre_size}, EDP={edp_size}"})
+    return out
+
+
 def _siad_port_size_pre_status(node_logs_text, ciq_wb, edp_rows, node_ids):
     """Pre (admOperatingMode on the board-generation-specific transport
     port — see pre_extract.extract_transport_port_mode) vs EDP
@@ -1903,7 +1956,7 @@ def _siad_port_size_pre_status(node_logs_text, ciq_wb, edp_rows, node_ids):
     import pre_extract as pe
     du_type = _du_type_by_node(ciq_wb)
 
-    bad, checked, no_port = [], 0, []
+    checked, no_port = 0, []
     for nid in node_ids:
         board = du_type.get(nid)
         log_text = (node_logs_text or {}).get(nid)
@@ -1915,13 +1968,11 @@ def _siad_port_size_pre_status(node_logs_text, ciq_wb, edp_rows, node_ids):
         if not pre_size:
             no_port.append(f"{nid}: no known transport port found in Pre log for board '{board}'")
             continue
-        if not edp_size:
-            continue
-        checked += 1
-        if pre_size.upper() != edp_size.upper():
-            bad.append(f"{nid}: Pre {port}={pre_size}, EDP={edp_size}")
+        if edp_size:
+            checked += 1
+    bad = siad_port_size_mismatches(node_logs_text, ciq_wb, edp_rows, node_ids)
     if bad:
-        return "mismatch", "; ".join(bad[:6])
+        return "mismatch", "; ".join(f"{b['node']}: {b['note']}" for b in bad[:6])
     if checked:
         note = f"{checked} node(s) checked, all pass."
         if no_port:
