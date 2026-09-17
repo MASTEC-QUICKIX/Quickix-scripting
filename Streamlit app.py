@@ -1001,7 +1001,7 @@ def _mm_row(cell, source, param, left_label, left, right):
             "comments": f"{left_label} - {left} | {'EDP' if source.endswith('EDP') else 'CIQ'} - {right}"}
 
 
-def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None):
+def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_rows=None, edp_node_ids=None):
     """Flat, parameter-level mismatch list for the consolidated report.
 
     Three comparison families, all reduced to the same four columns
@@ -1014,12 +1014,20 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None):
                        ARFCNDL/UL, BW, Power, TX, RX, RRU and RILink
                        (single/double).
       'KGET vs EDP'  - Bearer VLAN / IPv6 / Default Router and the OAM
-                       equivalents.
+                       equivalents, plus a CIQ node (primary or secondary)
+                       having no EDP row published at all (Checklist row
+                       20's own check, reused rather than re-derived here).
 
     A field whose Pre/KGET side is NA or NOT AVAILABLE is not a mismatch -
     there is nothing to compare it against - which mirrors how the
     underlying checks decide their own status."""
     rows = []
+
+    # ── EDP not published for a CIQ node (Checklist row 20) ────────────
+    if edp_node_ids:
+        for node in rc.edp_missing_nodes(edp_rows or [], edp_node_ids):
+            rows.append({"cell": node, "source": "KGET vs EDP", "param": "EDP Published",
+                         "comments": f"EDP is not published for {node}"})
 
     # ── RFDS vs CIQ ────────────────────────────────────────────────────
     for r in grouped_rows or []:
@@ -1656,7 +1664,9 @@ with tab_consolidated:
             results, ciq_wb, rfds_pages, state.get("rfds_bytes"))),
         results,
         rc.build_pre_vs_edp_ipv6_table(node_logs_text, state["node_role_list"], edp_rows)
-        if node_logs_text else []))
+        if node_logs_text else [],
+        edp_rows=edp_rows,
+        edp_node_ids=([n["node"] for n in state["node_role_list"]] or checked_nodes)))
 
     # category heading -> which "source" values belong under it
     MM_GROUPS = [
