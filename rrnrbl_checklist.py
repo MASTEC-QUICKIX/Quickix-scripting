@@ -640,6 +640,9 @@ def _edp_found_status(edp_rows, node_ids):
 
 
 def _edp_cabinet_status(edp_rows, node_ids):
+    """Rule: Primary node cabinet is BBUXX; Secondary is the SAME number
+    suffixed V (BBUXXV). Both directions enforced — a Secondary missing
+    the V, AND a Primary wrongly carrying one, both fail."""
     rows = _edp_node_rows(edp_rows, node_ids)
     bad, checked = [], 0
     for nid, r in rows.items():
@@ -648,9 +651,9 @@ def _edp_cabinet_status(edp_rows, node_ids):
         checked += 1
         cab = _norm(r.get("CABINET"))
         role = _edp_role(r)
-        ok = bool(re.match(r"^BBU\s*\d+V?$", cab, re.I)) if cab else False
-        if role == "SECONDARY" and cab and not cab.upper().endswith("V"):
-            ok = False
+        base_ok = bool(re.match(r"^BBU\s*\d+V?$", cab, re.I)) if cab else False
+        ends_v = cab.upper().endswith("V") if cab else False
+        ok = base_ok and (ends_v if role == "SECONDARY" else not ends_v)
         if not ok:
             bad.append(f"{nid}: cabinet '{cab or '(blank)'}' ({role})")
     if not checked:
