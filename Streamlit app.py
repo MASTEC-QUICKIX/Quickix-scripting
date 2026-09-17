@@ -1199,7 +1199,7 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
                           ("tac", "_tac_ok", "TAC"), ("bw", "_bw_ok", "BW"), ("dl", "_dl_ok", "EARFCN DL"),
                           ("ul", "_ul_ok", "EARFCN UL"), ("power", "_power_ok", "Power"),
                           ("tx", "_tx_ok", "TX"), ("rx", "_rx_ok", "RX"), ("rru", "_rru_ok", "RRU"),
-                          ("cellrange", "_cellrange_ok", "Cell Range")]
+                          ("cellrange", "_cellrange_ok", "Cell Range"), ("dss", "_dss_ok", "DSS")]
         for r in ppa.compare_lte_cell_level(node_logs_text, ciq_wb):
             if r.get("row_type") == "new":
                 continue  # no Pre match at all - nothing to compare, not a mismatch
@@ -1588,6 +1588,7 @@ with tab_audit:
                 ("bw", "_bw_ok", "BW"), ("dl", "_dl_ok", "EARFCN DL"), ("ul", "_ul_ok", "EARFCN UL"),
                 ("power", "_power_ok", "Power"), ("tx", "_tx_ok", "TX"), ("rx", "_rx_ok", "RX"),
                 ("rru", "_rru_ok", "RRU Model"), ("cellrange", "_cellrange_ok", "Cell Range"),
+                ("dss", "_dss_ok", "DSS"),
             ]), unsafe_allow_html=True)
 
             nr_pp_rows = ppa.compare_nr_cell_level(node_logs_text, ciq_wb)
