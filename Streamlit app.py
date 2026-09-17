@@ -1001,7 +1001,7 @@ def _mm_row(cell, source, param, left_label, left, right):
             "comments": f"{left_label} - {left} | {'EDP' if source.endswith('EDP') else 'CIQ'} - {right}"}
 
 
-def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_rows=None, edp_node_ids=None):
+def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_rows=None, edp_node_ids=None, ciq_wb=None):
     """Flat, parameter-level mismatch list for the consolidated report.
 
     Three comparison families, all reduced to the same four columns
@@ -1028,6 +1028,17 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
         for node in rc.edp_missing_nodes(edp_rows or [], edp_node_ids):
             rows.append({"cell": node, "source": "KGET vs EDP", "param": "EDP Published",
                          "comments": f"EDP is not published for {node}"})
+
+        # ── CIQ board type vs EDP NODE_MODEL (Checklist row 22) ────────
+        for b in rc.bbu_type_vs_node_model_mismatches(ciq_wb, edp_rows or [], edp_node_ids):
+            rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "BBU Type (NODE_MODEL)",
+                         "comments": b["note"]})
+
+        # ── CIQ BBU Mode vs EDP BBU_TYPE (Checklist row 23) ────────────
+        _r23_bad, _ = rc.node_model_vs_bbu_type_mismatches(ciq_wb, edp_rows or [], edp_node_ids)
+        for b in _r23_bad:
+            rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "BBU Mode (BBU_TYPE)",
+                         "comments": b["note"]})
 
     # ── RFDS vs CIQ ────────────────────────────────────────────────────
     for r in grouped_rows or []:
@@ -1666,7 +1677,8 @@ with tab_consolidated:
         rc.build_pre_vs_edp_ipv6_table(node_logs_text, state["node_role_list"], edp_rows)
         if node_logs_text else [],
         edp_rows=edp_rows,
-        edp_node_ids=([n["node"] for n in state["node_role_list"]] or checked_nodes)))
+        edp_node_ids=([n["node"] for n in state["node_role_list"]] or checked_nodes),
+        ciq_wb=ciq_wb))
 
     # category heading -> which "source" values belong under it
     MM_GROUPS = [
