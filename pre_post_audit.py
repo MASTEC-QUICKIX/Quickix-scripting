@@ -193,6 +193,7 @@ def _amos_lte_index(node_logs_text):
         radio_by_cell = pe.extract_cell_to_radio(text)
         sc_by_cell = _extract_sector_carrier_index(text)
         cell_range_by_cell = pe.extract_cell_range(text)
+        dss_by_cell = pe.extract_dss_status(text)
         for cell in cells:
             p = params.get(cell, {})
             c = cfg.get(cell, {})
@@ -205,6 +206,7 @@ def _amos_lte_index(node_logs_text):
                 "Pwr": c.get("power", ""), "TX": c.get("tx", ""), "RX": c.get("rx", ""),
                 "Model": pe._short_radio_name(radio_by_cell.get(cell)) or "",
                 "CellRange": cell_range_by_cell.get(cell, ""),
+                "DSS": bool(dss_by_cell.get(cell, False)),
             })
     return flat
 
@@ -263,6 +265,18 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
     ciq_rows = cer.sheet_rows_as_dicts(ciq_wb["eUtran Parameters"]) if "eUtran Parameters" in ciq_wb.sheetnames else []
     enb_tac_by_id = {str(r.get("eNBId") or "").strip(): r.get("tac") for r in cer.enb_info_rows(ciq_wb)}
 
+    # CIQ/Post-side DSS signal: '5G Info' tab's own 'DSS' column names the
+    # LTE cell it's paired with ('NO' when not paired) — confirmed real CIQ
+    # (HXIN010147_N002A_1's DSS='HXL04147_9A_1'). Built once as a set of
+    # every LTE cell named as a DSS partner anywhere in 5G Info, so the
+    # per-cell check below is a simple membership test.
+    dss_post_cells = set()
+    if "5G Info" in ciq_wb.sheetnames:
+        for r in cer.sheet_rows_as_dicts(ciq_wb["5G Info"]):
+            v = str(r.get("DSS") or "").strip().upper()
+            if v and v != "NO":
+                dss_post_cells.add(v)
+
     result = []
     for c in ciq_rows:
         cell_full = c.get("EutranCellFDDId") or c.get("Cell") or ""
@@ -287,6 +301,13 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
         rx_text, rx_ok = _cmp(_nz(match["RX"]) if match else "", c.get("noOfRxAntennas"))
         rru_text, rru_ok = _cmp(_nz(match["Model"]) if match else "", c.get("RRU type"), is_rru=True)
         cellrange_text, cellrange_ok = _cmp(_nz(match["CellRange"]) if match else "", c.get("cellRange"))
+        if match:
+            dss_pre_bool = bool(match.get("DSS"))
+            dss_post_bool = str(cell_full).strip().upper() in dss_post_cells
+            dss_text = f"{'Yes' if dss_pre_bool else 'No'} | {'Yes' if dss_post_bool else 'No'}"
+            dss_ok = dss_pre_bool == dss_post_bool
+        else:
+            dss_text, dss_ok = "-", None  # no Pre match - nothing to compare (new cell)
 
         result.append({
             "node": c.get("Node") or final_pfx, "cell": cell_full,
@@ -296,6 +317,7 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
             "power": pwr_text, "_power_ok": pwr_ok, "tx": tx_text, "_tx_ok": tx_ok,
             "rx": rx_text, "_rx_ok": rx_ok, "rru": rru_text, "_rru_ok": rru_ok,
             "cellrange": cellrange_text, "_cellrange_ok": cellrange_ok,
+            "dss": dss_text, "_dss_ok": dss_ok,
             "link": "-", "comment": comment, "row_type": row_type,
         })
     return result
