@@ -78,6 +78,30 @@ def extract_ul_channel_bandwidth(text):
     return result
 
 
+def extract_cell_range(text):
+    """cellRange per LTE cell - same 'kget all' full per-object attribute
+    dump as extract_ul_channel_bandwidth() (one 'MO ... EUtranCellFDD=X'
+    header followed by one attribute per line, NOT the compact hget table
+    _EUTRAN_CELL_RE reads) - confirmed on a real log (FCL04120.txt):
+    'MO ... EUtranCellFDD=FCL04120_2A_1' followed later in that same block
+    by 'cellId  22' then 'cellRange  23' as sibling attribute lines.
+    Best-effort: returns {} if kget all wasn't captured for this node."""
+    result = {}
+    if not text:
+        return result
+    headers = list(re.finditer(r'^MO\s+\S*(?<!External)EUtranCellFDD=([^\s,]+)\s*$', text, re.M))
+    for i, block_m in enumerate(headers):
+        cell = block_m.group(1)
+        if cell in result:
+            continue
+        window_end = headers[i + 1].start() if i + 1 < len(headers) else block_m.end() + 50000
+        window = text[block_m.end():window_end]
+        m = re.search(r'^cellRange\s+(\S+)', window, re.M)
+        if m:
+            result[cell] = m.group(1)
+    return result
+
+
 def extract_cell_to_sef(text):
     """Cell -> SectorEquipmentFunction number, via the
     SectorCarrier=|SectorEquipmentFunction hget block's reservedBy
