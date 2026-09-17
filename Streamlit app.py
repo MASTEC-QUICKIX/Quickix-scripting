@@ -1062,22 +1062,6 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
             rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "SIAD_PORT_FACING_BBU",
                          "comments": b["note"]})
 
-        # ── Bearer/OAM VLAN & IPv6 fields, Pre vs EDP (Checklist rows
-        # 26-31) — one call per field, same pre_key/edp_col mapping the
-        # checklist itself uses. ─────────────────────────────────────
-        for pre_key, edp_col, param, is_ipv6 in (
-            ("bearer_vlan", "BEARER_ENODEB_SB_VLAN_ID", "bearer_enodeb_sb_vlan_id", False),
-            ("bearer_router_ip", "IPV6_SIAD_BEARER_IP_DEF_ROUTER", "ipv6_siad_bearer_ip_def_router", True),
-            ("bearer_ip", "IPV6_ENODEB_BEARER_IP", "ipv6_enodeb_bearer_ip", True),
-            ("oam_vlan", "OAM_ENODEB_SIAD_OAM_VLAN", "oam_enodeb_siad_oam_vlan", False),
-            ("oam_router_ip", "IPV6_SIAD_OAM_IP_DEF_ROUTER", "ipv6_siad_oam_ip_def_router", True),
-            ("oam_ip", "IPV6_ENODEB_OAM_IP", "ipv6_enodeb_oam_ip", True),
-        ):
-            for b in rc.pre_vs_edp_field_mismatches(node_logs_text, node_role_list or [],
-                                                     edp_rows or [], pre_key, edp_col, is_ipv6):
-                rows.append({"cell": f"{b['node']} ({b['role']})", "source": "KGET vs EDP", "param": param,
-                             "comments": b["note"]})
-
     # ── RFDS vs CIQ ────────────────────────────────────────────────────
     for r in grouped_rows or []:
         # Prefer whichever side actually carries the cell identifier: on a
