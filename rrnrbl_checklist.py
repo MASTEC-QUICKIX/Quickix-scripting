@@ -621,13 +621,21 @@ def _edp_node_rows(edp_rows, node_ids):
     return out
 
 
-def _edp_found_status(edp_rows, node_ids):
+def edp_missing_nodes(edp_rows, node_ids):
+    """Public wrapper around _edp_node_rows for callers outside this module
+    (Consolidated Report) that need the same 'node has no EDP row at all'
+    list Row 20 (_edp_found_status) already computes — one detection, two
+    surfaces, instead of two independently-maintained EDP-presence checks."""
     rows = _edp_node_rows(edp_rows, node_ids)
-    missing = [n for n, r in rows.items() if r is None]
+    return [n for n, r in rows.items() if r is None]
+
+
+def _edp_found_status(edp_rows, node_ids):
+    missing = edp_missing_nodes(edp_rows, node_ids)
     if not node_ids:
         return "unknown", "No nodes to check."
     if missing:
-        return "mismatch", "; ".join(f"{n} is missing in EDP" for n in missing)
+        return "mismatch", "; ".join(f"EDP is not published for {n}" for n in missing)
     return "match", f"{len(node_ids)} node(s) all found in EDP."
 
 
@@ -987,6 +995,46 @@ def _edp_ptp_status(edp_rows, node_ids):
     return "info", f"No node declares a PTP VLAN in EDP ({no_ptp} checked) — PTP may not be in scope for this build."
 
 
+def _high_capacity_status(ciq_wb):
+    """Row 73 ('High Capacity Site (Identify if its HC)'), blue-marked in
+    the rule-mapping sheet: 'We can make it read from eUtran Parameters
+    tab of CIQ' — a direct read of CIQ's own 'High Capacity Site' column,
+    not a Pre/RFDS comparison (no other source declares HC status)."""
+    if not ciq_wb or "eUtran Parameters" not in ciq_wb.sheetnames:
+        return "unknown", "No eUtran Parameters sheet."
+    rows = [r for r in cer.sheet_rows_as_dicts(ciq_wb["eUtran Parameters"]) if _norm(r.get("EutranCellFDDId"))]
+    if not rows:
+        return "unknown", "No LTE cells in eUtran Parameters."
+    missing = [r.get("EutranCellFDDId") for r in rows if not _norm(r.get("High Capacity Site"))]
+    hc_cells = [r.get("EutranCellFDDId") for r in rows
+                if _norm(r.get("High Capacity Site")).upper() in ("TRUE", "YES", "Y")]
+    if missing:
+        return "manual", f"High Capacity Site blank for: {', '.join(missing)} — verify manually."
+    if hc_cells:
+        return "info", f"High Capacity Site = TRUE for: {', '.join(hc_cells)}."
+    return "info", "No cells marked High Capacity Site."
+
+
+def _cellrange_status(ciq_wb):
+    """Row 74's cellrange portion, blue-marked in the rule-mapping sheet:
+    'We can make it read from eUtran Parameters tab of CIQ'. qRxLevMin
+    and crsgain are NOT covered — no CIQ column maps to either and no
+    Pre/RFDS extraction exists for them, so they stay manual (per the
+    honesty convention: display what's actually read, don't imply the
+    whole row title is automated)."""
+    if not ciq_wb or "eUtran Parameters" not in ciq_wb.sheetnames:
+        return "unknown", "No eUtran Parameters sheet."
+    rows = [r for r in cer.sheet_rows_as_dicts(ciq_wb["eUtran Parameters"]) if _norm(r.get("EutranCellFDDId"))]
+    if not rows:
+        return "unknown", "No LTE cells in eUtran Parameters."
+    tail = " (qRxLevMin/crsgain: manual — no CIQ column mapped, no Pre/RFDS source.)"
+    missing = [r.get("EutranCellFDDId") for r in rows if not _norm(r.get("cellRange"))]
+    if missing:
+        return "manual", f"cellRange blank for: {', '.join(missing)} — verify manually.{tail}"
+    detail = "; ".join(f"{r.get('EutranCellFDDId')}={_norm(r.get('cellRange'))}" for r in rows)
+    return "info", f"cellRange: {detail}.{tail}"
+
+
 def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_pages=None, node_logs_text=None):
     mm_rows = cer.mixed_mode_rows(ciq_wb) if ciq_wb else []
     mm_by_node = {}
@@ -1020,7 +1068,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
          lambda: _sw_status_v2(results.get("sw_version", []))),
         (14, "Major showstopper check", None, "Software in the ENM vs Software upgradation tracker ", "NR/Radio", None),
 
-        (17, "ENM check", "Pre Vs RTS Sheet in QWEST", "Please validate the FA code with latest RTS sheet in qwest", "Radio", None),
+        (17, "ENM check", "Pre Vs RTS Sheet in QWEST", "Please validate the FA code with latest RTS sheet in qwest", "Radio", lambda: _fa_code_status(site_details, ciq_wb)),
 
         (20, "EDP check", "EDP vs Site", "site_name", "NR/Radio", lambda: _edp_found_status(edp_rows, edp_node_ids)),
         (21, "EDP check", "EDP vs Site", "cabinet", "Radio", lambda: _cabinet_pairing_status(ciq_wb, edp_rows, edp_node_ids)),
@@ -1087,8 +1135,8 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (70, "CIQ tabs checks", "eUtran Parameters Tab", "earfcnDl/ dlChannelBandwidth ENM vs CIQ", "NR/Radio", lambda: _agg_params_4g(results.get("params_4g", []))),
         (71, "CIQ tabs checks", "eUtran Parameters Tab", "RBB type/ noOfTx/noOfRx\nIdentify  ISDLONLY carrier", "NR/Radio", lambda: _agg_rbb_tx_isdlonly_4g(results.get("rbb_tx_isdlonly_4g", []))),
         (72, "CIQ tabs checks", "eUtran Parameters Tab", "cellId ENM vs CIQ \nIdentify cellid change SOW", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
-        (73, "CIQ tabs checks", "eUtran Parameters Tab", "High Capacity Site \n(Identify if its HC)", "NR", None),
-        (74, "CIQ tabs checks", "eUtran Parameters Tab", "qRxLevMin | cellrange | crsgain ENM Vs CIQ", "NR", None),
+        (73, "CIQ tabs checks", "eUtran Parameters Tab", "High Capacity Site \n(Identify if its HC)", "NR", lambda: _high_capacity_status(ciq_wb)),
+        (74, "CIQ tabs checks", "eUtran Parameters Tab", "qRxLevMin | cellrange | crsgain ENM Vs CIQ", "NR", lambda: _cellrange_status(ciq_wb)),
         (75, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection should match with RFDS - EutranCell", "Radio", lambda: _agg_row60(results.get("cells_vs_rfds", []))),
         (76, "CIQ tabs checks", "eUtran Parameters Tab", "electricalAntennaTilt should be integer value not character - Tilt", "Radio", lambda: _agg_electrical_tilt_type(results.get("electrical_tilt_type", []))),
         (77, "CIQ tabs checks", "eUtran Parameters Tab", "configuredOutputPower depends on RRU type (Ericsson 4490, 4890, or 4472 radios (e.g., NSB or Allagi projects, New Carrier Adds, Radio Swaps) will be Configured with maximum allowed power of 160W.) - configuredOutputPower", "Radio", None),
