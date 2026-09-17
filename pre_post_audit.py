@@ -65,7 +65,7 @@ def _norm_bb(v):
     return m.group(0) if m else s
 
 
-def build_node_pre_post(pre_summary_rows, ciq_node_rows, node_logs_text, edp_rows):
+def build_node_pre_post(pre_summary_rows, ciq_node_rows, node_logs_text, edp_rows, ciq_wb=None):
     """pre_summary_rows: amos_view.build_amos_tables()'s summary_rows (one
     dict per Pre node, with 'node' and 'sw_package').
     ciq_node_rows: ciq_view.build_node_integration()'s output (one dict per
@@ -74,12 +74,18 @@ def build_node_pre_post(pre_summary_rows, ciq_node_rows, node_logs_text, edp_row
     checks_node.check_ptp_matrix() for the real A-G PTP verdict — this
     replaces a hardcoded '-' placeholder that predated that check.
     edp_rows: EDP sheet rows, also passed to check_ptp_matrix().
+    ciq_wb: the CIQ workbook, for the DSS Pre/Post columns below. Optional
+    (None skips both DSS columns rather than failing) so existing callers
+    that don't have it handy keep working.
 
-    Returns a list of {node, status, type, ptp, _ptp_flag} rows: type is one
-    of 'change'/'nochange'/'delete'/'new', matching the HTML's row classes
-    for color coding (see PRE_POST_ROW_COLORS in the caller). _ptp_flag is
-    True when the PTP verdict itself represents an action item ('PTP should
-    be created' / 'PTP to be created'), used to highlight it red."""
+    Returns a list of {node, status, type, ptp, _ptp_flag, dss_pre,
+    dss_post} rows: type is one of 'change'/'nochange'/'delete'/'new',
+    matching the HTML's row classes for color coding (see
+    PRE_POST_ROW_COLORS in the caller). _ptp_flag is True when the PTP
+    verdict itself represents an action item ('PTP should be created' /
+    'PTP to be created'), used to highlight it red. dss_pre/dss_post are
+    True/False/None (None = nothing to check for this node - no Pre log,
+    or no CIQ entry for a deleted node)."""
     import checks_node as cn
 
     pre_by_node = {_norm(r["node"].split(" / ")[0]): r for r in pre_summary_rows}
@@ -92,6 +98,35 @@ def build_node_pre_post(pre_summary_rows, ciq_node_rows, node_logs_text, edp_row
         flag = verdict in ("PTP should be created", "PTP to be created")
         return verdict, flag
 
+    def _dss_pre(node_id):
+        """Pre: is DSS already active on this node, per its own Pre log
+        (pe.extract_dss_status — 'get . essScLocalId'/'get . essScPairId'
+        both non-zero on a SectorCarrier or NRSectorCarrier). None = no
+        Pre log for this node, nothing to check."""
+        log_text = (node_logs_text or {}).get(node_id)
+        if not log_text:
+            return None
+        dss = pe.extract_dss_status(log_text)
+        return any(dss.values())
+
+    def _dss_post(node_id):
+        """Post: is DSS present for this node in CIQ. The '5G Info' tab's
+        own 'DSS' column is the CIQ-side signal — 'NO' when not paired,
+        otherwise the LTE cell name it's paired with (confirmed real CIQ:
+        HXIN010147_N002A_1's DSS='HXL04147_9A_1'). A node's DSS pairing
+        shows up under whichever 5G node references it, so this checks
+        every 5G Info row for a DSS value starting with THIS node's own
+        name, not just that node's own 5G Info rows. None = no CIQ '5G
+        Info' sheet to check at all."""
+        if ciq_wb is None or "5G Info" not in ciq_wb.sheetnames or not node_id:
+            return None
+        prefix = str(node_id).strip().upper()
+        for r in cer.sheet_rows_as_dicts(ciq_wb["5G Info"]):
+            dss_val = str(r.get("DSS") or "").strip().upper()
+            if dss_val and dss_val != "NO" and dss_val.startswith(prefix):
+                return True
+        return False
+
     result = []
     for key, p in pre_by_node.items():
         pre_bb = p.get("sw_package")
@@ -102,19 +137,23 @@ def build_node_pre_post(pre_summary_rows, ciq_node_rows, node_logs_text, edp_row
             status = f"Board Changed: {pre_bb} \u2192 {fin_bb}" if changed else "No Board Change"
             row_type = "change" if changed else "nochange"
             ptp, ptp_flag = _ptp_for(node_id, is_new_node=False)
+            dss_post = _dss_post(node_id)
         else:
             status, row_type = "Node Deleted", "delete"
             ptp, ptp_flag = "\u2014", False
+            dss_post = None  # deleted - no CIQ entry to check
         result.append({
             "node": p["node"], "status": status, "type": row_type,
             "ptp": ptp, "_ptp_flag": ptp_flag,
+            "dss_pre": _dss_pre(node_id), "dss_post": dss_post,
         })
 
     for key, c in ciq_by_node.items():
         if key not in pre_by_node:
             ptp, ptp_flag = _ptp_for(c["node"], is_new_node=True)
             result.append({"node": c["node"], "status": "Newly Adding Node", "type": "new",
-                            "ptp": ptp, "_ptp_flag": ptp_flag})
+                            "ptp": ptp, "_ptp_flag": ptp_flag,
+                            "dss_pre": None, "dss_post": _dss_post(c["node"])})
     return result
 
 
