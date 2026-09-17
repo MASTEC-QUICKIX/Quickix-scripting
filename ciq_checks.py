@@ -22,6 +22,7 @@ import re
 import band_labels as bl
 import ciq_edp_reader as cer
 import checks_sector as cs
+import pre_extract as pe
 
 
 def _band_family(label):
@@ -271,6 +272,32 @@ def build_lte_ciq_rows(ciq_wb, node_id_col_map=None):
             continue
         if not t.is_integer():
             add(i, f'Electrical tilt is not integer for {r.get("EutranCellFDDId")} (value={tilt})')
+
+    # ── RBB type vs noOfTxAntennas/noOfRxAntennas/Radio Port — CIQ-internal
+    # consistency (same rule as checks_sector.check_rbb_tx_isdlonly_4g /
+    # Checklist row 58), but that function only feeds the RRNRBL Checklist
+    # tab's summary line ("N sector(s) with RBB/TX-RX mismatch (band)") —
+    # this table shows RBB Type Verification/TX/RX side by side and had no
+    # comment wired to them at all, so a real mismatch here was invisible
+    # on the CIQ Checks tab even though the Checklist tab flagged it. ──
+    for i, r in enumerate(rows):
+        rbb = r.get("RBB type")
+        rbb_txrx = pe.parse_rbb_txrx(rbb)
+        ciq_tx = str(r.get("noOfTxAntennas", "") or "").strip()
+        ciq_rx = str(r.get("noOfRxAntennas", "") or "").strip()
+        ciq_txrx = f"{ciq_tx}x{ciq_rx}" if ciq_tx and ciq_rx else None
+        isdlonly = str(r.get("ISDLONLY", "") or "").strip().upper()
+        radio_port = str(r.get("Radio Port", "") or "").strip()
+        rbb_link = pe.parse_rbb_link(rbb)
+        radio_port_link = "Double" if "/" in radio_port else ("Single" if radio_port else None)
+        if rbb_txrx is None:
+            add(i, f"RBB type '{rbb}' does not match the expected RBB<TX><RX> pattern.")
+        elif ciq_txrx and rbb_txrx != ciq_txrx:
+            add(i, f"RBB type {rbb} implies TX/RX {rbb_txrx} but noOfTxAntennas/noOfRxAntennas={ciq_txrx}.")
+        if ciq_tx == "0" and isdlonly != "TRUE":
+            add(i, f"noOfTxAntennas=0 but ISDLONLY='{isdlonly or 'blank'}' (expected TRUE).")
+        if rbb_link and radio_port_link and rbb_link != radio_port_link:
+            add(i, f"RBB type {rbb} implies {rbb_link} link but Radio Port='{radio_port}' is {radio_port_link}.")
 
     # ── Antenna uniqueness — reuse this project's own confirmed check.
     # MISMATCH only: MATCH means the pairing is correctly configured
