@@ -1177,6 +1177,38 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
                         continue
                 rows.append(_mm_row(cell, "KGET vs CIQ", _MM_PARAM_LABEL.get(b, b), "KGET", pre, ciq))
 
+    # ── Pre vs Post cell-level audit (the Audit tab's own "Pre vs Post"
+    # table, compare_lte_cell_level/compare_nr_cell_level) — computed
+    # separately from params_4g/params_5g/sector_swap above (different
+    # matching logic: by cell SUFFIX so a moved sector is still paired
+    # with its Pre self) and was never wired here at all. ────────────────
+    if node_logs_text and ciq_wb is not None:
+        import pre_post_audit as ppa
+        _LTE_PP_FIELDS = [("sc", "_sc_ok", "Sector Carrier"), ("cellid", "_cellid_ok", "Cell ID"),
+                          ("tac", "_tac_ok", "TAC"), ("bw", "_bw_ok", "BW"), ("dl", "_dl_ok", "EARFCN DL"),
+                          ("ul", "_ul_ok", "EARFCN UL"), ("power", "_power_ok", "Power"),
+                          ("tx", "_tx_ok", "TX"), ("rx", "_rx_ok", "RX"), ("rru", "_rru_ok", "RRU")]
+        for r in ppa.compare_lte_cell_level(node_logs_text, ciq_wb):
+            if r.get("row_type") == "new":
+                continue  # no Pre match at all - nothing to compare, not a mismatch
+            for key, ok_key, label in _LTE_PP_FIELDS:
+                if r.get(ok_key) is False:
+                    pre, _, ciq = str(r.get(key, "")).partition(" | ")
+                    rows.append(_mm_row(r.get("cell") or "\u2014", "KGET vs CIQ", label, "KGET",
+                                         pre.strip(), ciq.strip()))
+        _NR_PP_FIELDS = [("cellid", "_cellid_ok", "Cell ID"), ("dl", "_dl_ok", "ARFCN DL"),
+                         ("ul", "_ul_ok", "ARFCN UL"), ("bwdl", "_bwdl_ok", "BW DL"),
+                         ("bwul", "_bwul_ok", "BW UL"), ("power", "_power_ok", "Power"),
+                         ("ssb", "_ssb_ok", "SSB"), ("rru", "_rru_ok", "RRU")]
+        for r in ppa.compare_nr_cell_level(node_logs_text, ciq_wb):
+            if r.get("row_type") == "new":
+                continue
+            for key, ok_key, label in _NR_PP_FIELDS:
+                if r.get(ok_key) is False:
+                    pre, _, ciq = str(r.get(key, "")).partition(" | ")
+                    rows.append(_mm_row(r.get("cell") or "\u2014", "KGET vs CIQ", label, "KGET",
+                                         pre.strip(), ciq.strip()))
+
     for key, label in (("cell_id_vs_rfds", "CellID"), ("radio_type", "RRU")):
         for r in results.get(key, []):
             if str(r.get("status", "")).upper() != "MISMATCH":
@@ -1496,21 +1528,23 @@ with tab_audit:
                 ("xmu", "XMU"), ("ports", "Ports"),
             ]), unsafe_allow_html=True)
 
-        ciq_lte_rows = cc.build_lte_ciq_rows(ciq_wb)
+        ciq_lte_rows = cc.build_lte_ciq_rows(ciq_wb, rbb_results=results.get("rbb_tx_isdlonly_4g", []))
         ciq_nr_rows = cc.build_nr_ciq_rows(ciq_wb)
         cc.apply_link_and_sharing(ciq_lte_rows, ciq_nr_rows)
 
         section_title("LTE E-UTRAN Parameters", badge=f"{len(ciq_lte_rows)}")
-        st.markdown(render_table(ciq_lte_rows, status_key=None, columns=[
-            ("node", "Node"), ("cell", "Cell"), ("pci", "PCI"), ("electrical_tilt", "Electrical Tilt"),
+        st.markdown(render_table(ciq_lte_rows, status_key="status", columns=[
+            ("node", "Node"), ("cell", "Cell"), ("pci", "PCI"), ("cell_id", "Cell ID"),
+            ("electrical_tilt", "Electrical Tilt"),
             ("rbb_type", "RBB Type Verification"), ("tx", "TX"), ("rx", "RX"),
             ("riport", "RIPORT"), ("sharing_radio", "Sharing Radio"),
             ("link", "Link (Single/Doublelink)"), ("comments_html", "Comments/Warning"),
         ]), unsafe_allow_html=True)
 
         section_title("5G NR Parameters", badge=f"{len(ciq_nr_rows)}")
-        st.markdown(render_table(ciq_nr_rows, status_key=None, columns=[
+        st.markdown(render_table(ciq_nr_rows, status_key="status", columns=[
             ("node", "Node"), ("cell", "Cell"), ("sef", "SEF"), ("fru", "FRU"), ("nr_pci", "NR PCI"),
+            ("cell_id", "Cell ID"),
             ("electrical_tilt", "Electrical Tilt"), ("rbb_type", "RBB Type Verification"), ("riport", "RIPORT"),
             ("sharing_radio", "Sharing Radio"), ("link", "Link (Single/Doublelink)"), ("comments_html", "Comments/Warning"),
         ]), unsafe_allow_html=True)
