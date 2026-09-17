@@ -1002,7 +1002,7 @@ def _mm_row(cell, source, param, left_label, left, right):
 
 
 def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_rows=None, edp_node_ids=None,
-                                    ciq_wb=None, node_logs_text=None, node_role_list=None):
+                                    ciq_wb=None, node_logs_text=None, node_role_list=None, site_details=None):
     """Flat, parameter-level mismatch list for the consolidated report.
 
     Three comparison families, all reduced to the same four columns
@@ -1023,6 +1023,14 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
     there is nothing to compare it against - which mirrors how the
     underlying checks decide their own status."""
     rows = []
+
+    # ── FA Code, RFDS vs CIQ (Checklist rows 17/34) ────────────────────
+    if site_details:
+        rfds_fa = site_details.get("rfds_fa_code")
+        ciq_fa = site_details.get("fa_code")
+        if rfds_fa and ciq_fa and rfds_fa != ciq_fa:
+            rows.append({"cell": "site", "source": "RFDS vs CIQ", "param": "FA Code",
+                         "comments": f"RFDS FA Code {rfds_fa} vs CIQ FA Code {ciq_fa}"})
 
     # ── EDP not published for a CIQ node (Checklist row 20) ────────────
     if edp_node_ids:
@@ -1712,7 +1720,8 @@ with tab_consolidated:
         edp_node_ids=([n["node"] for n in state["node_role_list"]] or checked_nodes),
         ciq_wb=ciq_wb,
         node_logs_text=node_logs_text,
-        node_role_list=state["node_role_list"]))
+        node_role_list=state["node_role_list"],
+        site_details=site_details))
 
     # category heading -> which "source" values belong under it
     MM_GROUPS = [
