@@ -960,8 +960,19 @@ _MM_PARAM_LABEL = {
 
 # CIQ-side validation rules, and the label each one reports under.
 _MM_CIQ_CHECKS = [
-    ("primary_secondary", "Primary/Secondary ID"),
+    ("identity", "eNBId/gNBId (ENM vs CIQ)"),
     ("gnb_identity", "gNB Identity (Mixed Mode vs gNB/5G Info)"),
+    ("enb_identity", "eNB Identity (Mixed Mode vs eNB Info/eUtran)"),
+    ("gnb_du_type", "DU type (gNB Info vs 5G Info BBU Type)"),
+    ("nrcelldu_nrcellcu", "NRCellDU/NRCellCU naming"),
+    ("arfcn_bw_5g", "ARFCN/Bandwidth (5G, ENM vs CIQ)"),
+    ("ssb_5g", "SSB Frequency/Offset/Duration"),
+    ("dss", "Pre-existing DSS"),
+    ("antenna_type_rfds", "Antenna Type/Model vs RFDS"),
+    ("rbb_tx_isdlonly_4g", "RBB Type/TX-RX/ISDLONLY (4G)"),
+    ("rilink_vs_rbb_4g", "RILink vs RBB Type (4G)"),
+    ("electrical_tilt_type", "Electrical Tilt not an integer"),
+    ("cellid_uniqueness_4g", "Cell ID uniqueness (4G)"),
     ("pci_4g", "PCI clash (LTE)"),
     ("pci_5g", "PCI clash (5G)"),
     ("antenna", "Antenna uniqueness"),
@@ -1037,6 +1048,52 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None):
         if r.get("losses_status") == "MISMATCH":
             rows.append({"cell": cell, "source": "RFDS vs CIQ", "param": "Missing in Losses and Delays",
                          "comments": "Cell not listed on the CIQ 'Losses and Delays' sheet"})
+
+    # ── Primary/Secondary identity (Rule #3/#31) ──────────────────────
+    # Spans THREE sources (CIQ vs EDP vs RFDS), unlike every other check
+    # in this function which only ever compares two — so it can't sit in
+    # SW version (rule #1) never carries MISMATCH on its own raw entries
+    # (only INFO/SKIPPED per node) - checklist row 13's "Major showstopper"
+    # verdict comes from a cross-node comparison done only inside the
+    # checklist builder (_sw_status_v2: every node's own version must be
+    # detected, and all detected versions must agree). Reused here so this
+    # same finding isn't invisible everywhere except the checklist.
+    _sw_checked = [r for r in results.get("sw_version", []) if r.get("status") != "SKIPPED"]
+    _sw_missing = [r.get("node") for r in _sw_checked if r.get("sw_version") in (None, "NOT FOUND")]
+    _sw_versions = {r.get("sw_version") for r in _sw_checked if r.get("sw_version") not in (None, "NOT FOUND")}
+    if _sw_missing:
+        rows.append({"cell": ", ".join(_sw_missing), "source": "CIQ check", "param": "SW Version",
+                     "comments": f"No SW version detected for: {', '.join(_sw_missing)}"})
+    if len(_sw_versions) > 1:
+        rows.append({"cell": "site", "source": "CIQ check", "param": "SW Version",
+                     "comments": f"SW versions disagree across nodes: {sorted(_sw_versions)}"})
+
+    # one fixed bucket. Routed to whichever source(s) actually disagree
+    # with CIQ, same comparison check_primary_secondary itself already
+    # made, so "missing in EDP" shows under EDP Checks and "missing in
+    # RFDS" shows under RFDS vs CIQ, rather than every case landing under
+    # a single generic CIQ-check heading regardless of which side the
+    # real gap is on.
+    for r in results.get("primary_secondary", []):
+        if str(r.get("status", "")).upper() != "MISMATCH":
+            continue
+        node = r.get("node") or "\u2014"
+        ciq_label, edp_label, rfds_label = r.get("ciq"), r.get("edp"), r.get("rfds")
+        routed = False
+        if edp_label is not None and edp_label != ciq_label:
+            rows.append({"cell": node, "source": "KGET vs EDP", "param": "Primary/Secondary ID",
+                         "comments": f"CIQ - {ciq_label} | EDP - {edp_label}"})
+            routed = True
+        if rfds_label is not None and rfds_label not in (ciq_label, "NOT CHECKED"):
+            rows.append({"cell": node, "source": "RFDS vs CIQ", "param": "Primary/Secondary ID",
+                         "comments": f"CIQ - {ciq_label} | RFDS - {rfds_label}"})
+            routed = True
+        if not routed:
+            # Flagged MISMATCH for some reason other than a direct EDP/RFDS
+            # value disagreement (e.g. CIQ itself missing from Mixed Mode
+            # Info entirely) - still surface it rather than dropping it.
+            rows.append({"cell": node, "source": "CIQ check", "param": "Primary/Secondary ID",
+                         "comments": r.get("note", "") or "\u2014"})
 
     # ── KGET vs CIQ ────────────────────────────────────────────────────
     for key in ("params_4g", "params_5g", "sector_swap"):
