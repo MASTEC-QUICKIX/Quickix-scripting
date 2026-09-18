@@ -179,7 +179,8 @@ def _amos_lte_index(node_logs_text):
 
 def _amos_nr_index(node_logs_text):
     """Same as _amos_lte_index but for 5G — CellID/DL/UL/BW_DL/BW_UL/Pwr/
-    SSB/Model, matching compareNRCellLevel()'s expected fields."""
+    SSB/Model/CellRange/DSS, matching compareNRCellLevel()'s expected
+    fields."""
     flat = []
     for node_id, text in (node_logs_text or {}).items():
         cells = [c for c in pci.extract_pre_cells_for_node(text) if bl.is_5g_cell(c)]
@@ -187,6 +188,8 @@ def _amos_nr_index(node_logs_text):
         cfg = cs._extract_sector_config_5g(text)
         used = pe.extract_nr_used_antennas(text)
         radio_by_cell = pe.extract_cell_to_radio(text)
+        cell_range_by_cell = pe.extract_cell_range_5g(text)
+        dss_by_cell = pe.extract_dss_status(text)
         for cell in cells:
             p = params.get(cell, {})
             c = cfg.get(cell, {})
@@ -198,6 +201,8 @@ def _amos_nr_index(node_logs_text):
                 "BW_DL": p.get("bSChannelBwDL", ""), "BW_UL": p.get("bSChannelBwUL", ""),
                 "Pwr": c.get("power", ""), "SSB": p.get("ssbFrequency", ""),
                 "Model": pe._short_radio_name(radio_by_cell.get(cell)) or "",
+                "CellRange": cell_range_by_cell.get(cell, ""),
+                "DSS": bool(dss_by_cell.get(cell, False)),
             })
     return flat
 
@@ -346,6 +351,14 @@ def compare_nr_cell_level(node_logs_text, ciq_wb):
         pwr_text, pwr_ok = _cmp(_nz(match["Pwr"]) if match else "", c.get("configuredMaxTxPower"))
         ssb_text, ssb_ok = _cmp(_nz(match["SSB"]) if match else "", c.get("ssbFrequency"))
         rru_text, rru_ok = _cmp(_nz(match["Model"]) if match else "", c.get("RRU Type") or c.get("RRU type"), is_rru=True)
+        cellrange_text, cellrange_ok = _cmp(_nz(match["CellRange"]) if match else "", c.get("CellRange"))
+        if match:
+            dss_pre_bool = bool(match.get("DSS"))
+            dss_post_bool = str(c.get("DSS") or "").strip().upper() not in ("", "NO")
+            dss_text = f"{'Yes' if dss_pre_bool else 'No'} | {'Yes' if dss_post_bool else 'No'}"
+            dss_ok = dss_pre_bool == dss_post_bool
+        else:
+            dss_text, dss_ok = "-", None  # no Pre match - nothing to compare (new cell)
 
         result.append({
             "node": final_pfx, "cell": cell_full,
@@ -353,6 +366,8 @@ def compare_nr_cell_level(node_logs_text, ciq_wb):
             "ul": ul_text, "_ul_ok": ul_ok, "bw_dl": bwdl_text, "_bw_dl_ok": bwdl_ok,
             "bw_ul": bwul_text, "_bw_ul_ok": bwul_ok, "power": pwr_text, "_power_ok": pwr_ok,
             "ssb": ssb_text, "_ssb_ok": ssb_ok, "rru": rru_text, "_rru_ok": rru_ok,
+            "cellrange": cellrange_text, "_cellrange_ok": cellrange_ok,
+            "dss": dss_text, "_dss_ok": dss_ok,
             "link": "-", "comment": comment, "row_type": row_type,
         })
     return result
