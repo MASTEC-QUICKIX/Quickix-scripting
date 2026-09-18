@@ -52,6 +52,31 @@ _EUTRAN_CELL_RE = re.compile(
 )
 
 
+def extract_vonr_status(text):
+    """VoNR active on this node: 'epsFallbackOperation' = 3 on ANY
+    EUtranFreqRelation (or similar per-relation MO - it repeats many times
+    per node, one instance is enough) AND the CXC4012592 feature's own
+    'featureState' = 1 (ACTIVATED). Confirmed real block shape (HXL04147.log):
+    'epsFallbackOperation   2 (FORCED)' / '5 (FORCED_MEAS_RWR)' per relation
+    (never 3 on that non-VoNR site - correctly reads inactive), and
+    'MO ...FeatureState=CXC4012592' followed by 'featureState  0 (DEACTIVATED)'
+    (also correctly inactive there).
+
+    Deliberately anchored to 'epsFallbackOperation\\s+' (not just the
+    substring) so this never matches the DIFFERENT field
+    'epsFallbackOperationEm' - that field has no whitespace before its
+    'Em' suffix, so it can't satisfy '\\s+' right after 'Operation' and is
+    never confused with the real field here."""
+    if not text:
+        return False
+    epsfb_active = bool(re.search(r'^epsFallbackOperation\s+3\b', text, re.M))
+    if not epsfb_active:
+        return False
+    m = re.search(r'^MO\s+\S*FeatureState=CXC4012592\s*$\r?\n=+\r?\n'
+                  r'(?:^(?!MO\s).*$\r?\n)*?^featureState\s+(\d+)', text, re.M)
+    return bool(m and m.group(1) == '1')
+
+
 def extract_ul_channel_bandwidth(text):
     """ulChannelBandwidth per cell - only available via 'kget all' full dump
     (not a targeted hget block), so best-effort: returns {} if kget all
