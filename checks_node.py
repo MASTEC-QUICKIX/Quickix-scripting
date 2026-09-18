@@ -207,7 +207,14 @@ def check_board_type(node_id, mm_row, enb_row, ciq_wb, edp_rows, rfds_pages=None
     """Rule #5/#15/#13 (merged, per confirmed format) - Board Type:
     CIQ (eNB/gNB Info DU type) vs EDP (NODE_MODEL, current/deployed
     hardware) vs RFDS (Non RF Inventory Model text). No Pre column - EDP
-    plays that role here per confirmed decision."""
+    plays that role here per confirmed decision.
+
+    CIQ, EDP and RFDS are all final-design documents, so any disagreement
+    among them is a genuine MISMATCH - there is no 'expected'/amber board
+    swap here (that would only make sense if one side were a live/current
+    Pre-log value, which this check deliberately does not use). Reports
+    the two comparisons (CIQ-vs-EDP, CIQ-vs-RFDS) as separate flags so the
+    consolidated report can route each mismatch to its own section."""
     ciq_du = None
     if enb_row is not None:
         ciq_du = str(enb_row.get('DU type') or enb_row.get('1st DU type') or '').strip() or None
@@ -234,25 +241,24 @@ def check_board_type(node_id, mm_row, enb_row, ciq_wb, edp_rows, rfds_pages=None
         if ciq_du and rfds_model_text:
             rfds_agrees = ciq_du in rfds_model_text
 
+    rfds_mismatch = (rfds_agrees is False)
+    ciq_missing = not ciq_du
+    edp_mismatch = bool(edp_model and ciq_du and edp_model != ciq_du)
+
     notes = []
-    if rfds_agrees is False:
-        status = 'MISMATCH'
+    if rfds_mismatch:
         notes.append(f'CIQ DU type {ciq_du} not found in RFDS — CIQ and RFDS disagree.')
-    elif not ciq_du:
-        status = 'MISMATCH'
+    if ciq_missing:
         notes.append('CIQ DU type not found.')
-    elif edp_model and edp_model != ciq_du:
-        # EDP (current/deployed) differs from CIQ target: the planned board
-        # swap, expected scope of work - confirmed by RFDS agreeing with CIQ.
-        status = 'EXPECTED' if rfds_agrees else 'MISMATCH'
-        notes.append(f'Board swap: EDP={edp_model} → CIQ target={ciq_du}.'
-                     + (' RFDS agrees with CIQ — planned change.' if rfds_agrees else ' RFDS not checked.'))
-    else:
-        status = 'MATCH'
+    if edp_mismatch:
+        notes.append(f'EDP={edp_model} differs from CIQ target={ciq_du} — CIQ and EDP disagree.')
+
+    status = 'MISMATCH' if (rfds_mismatch or ciq_missing or edp_mismatch) else 'MATCH'
 
     return {'rule': '#5/#15/#13', 'node': node_id, 'status': status,
             'ciq_du_type': ciq_du, 'edp_model': edp_model or 'NOT FOUND',
             'rfds_agrees': rfds_agrees,
+            'edp_mismatch': edp_mismatch, 'rfds_mismatch': rfds_mismatch,
             'note': ' '.join(notes) if notes else 'Confirmed.'}
 
 
