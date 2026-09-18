@@ -331,21 +331,11 @@ PRE_POST_ROW_COLORS = {
 
 
 def render_node_pre_post_table(rows):
-    """Node / Status / PTP / DSS (Pre) / DSS (Post), whole-row background
-    from row['type']. DSS columns show 'Yes'/'No' colored red/green, or
-    '\u2014' when there's nothing to check for that node (dss_pre/dss_post
-    is None — no Pre log, or no CIQ entry for a deleted node)."""
+    """Node / Status / PTP, whole-row background from row['type']."""
     if not rows:
         return '<div class="qkx-empty">Run validation with Pre logs and a CIQ to populate this.</div>'
-    head = "".join(f"<th>{h}</th>" for h in ("Node", "Status", "PTP", "DSS (Pre)", "DSS (Post)"))
+    head = "".join(f"<th>{h}</th>" for h in ("Node", "Status", "PTP"))
     body = []
-
-    def _dss_cell(v):
-        if v is None:
-            return '<td>\u2014</td>'
-        color = "#991b1b" if v else "#065f46"
-        return f'<td style="color:{color};font-weight:600;">{"Yes" if v else "No"}</td>'
-
     for r in rows:
         bg = PRE_POST_ROW_COLORS.get(r["type"], "#ffffff")
         status_color = "#b45309" if r["type"] == "change" else "#0f1720"
@@ -353,8 +343,7 @@ def render_node_pre_post_table(rows):
         body.append(
             f'<tr style="background:{bg};"><td>{esc(r["node"])}</td>'
             f'<td style="color:{status_color};font-weight:600;">{esc(r["status"])}</td>'
-            f'<td style="color:{ptp_color};font-weight:600;">{esc(r["ptp"])}</td>'
-            f'{_dss_cell(r.get("dss_pre"))}{_dss_cell(r.get("dss_post"))}</tr>'
+            f'<td style="color:{ptp_color};font-weight:600;">{esc(r["ptp"])}</td></tr>'
         )
     return (f'<div class="qkx-table-wrap"><table class="qkx-table"><thead><tr>{head}</tr></thead>'
             f'<tbody>{"".join(body)}</tbody></table></div>')
