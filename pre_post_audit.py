@@ -238,15 +238,16 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
 
     # CIQ/Post-side DSS signal: '5G Info' tab's own 'DSS' column names the
     # LTE cell it's paired with ('NO' when not paired) — confirmed real CIQ
-    # (HXIN010147_N002A_1's DSS='HXL04147_9A_1'). Built once as a set of
-    # every LTE cell named as a DSS partner anywhere in 5G Info, so the
-    # per-cell check below is a simple membership test.
-    dss_post_cells = set()
+    # (HXIN010147_N002A_1's DSS='HXL04147_9A_1'). Built once as a dict
+    # LTE cell -> its 5G partner cell name, so the per-cell check below can
+    # show WHICH 5G cell it's paired with, not just yes/no — that detail is
+    # already sitting right there in the column, no reason to throw it away.
+    dss_post_partner = {}
     if "5G Info" in ciq_wb.sheetnames:
         for r in cer.sheet_rows_as_dicts(ciq_wb["5G Info"]):
-            v = str(r.get("DSS") or "").strip().upper()
-            if v and v != "NO":
-                dss_post_cells.add(v)
+            v = str(r.get("DSS") or "").strip()
+            if v and v.upper() != "NO":
+                dss_post_partner[v.upper()] = r.get("NRCellDU") or v
 
     result = []
     for c in ciq_rows:
@@ -274,8 +275,10 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
         cellrange_text, cellrange_ok = _cmp(_nz(match["CellRange"]) if match else "", c.get("cellRange"))
         if match:
             dss_pre_bool = bool(match.get("DSS"))
-            dss_post_bool = str(cell_full).strip().upper() in dss_post_cells
-            dss_text = f"{'Yes' if dss_pre_bool else 'No'} | {'Yes' if dss_post_bool else 'No'}"
+            partner = dss_post_partner.get(str(cell_full).strip().upper())
+            dss_post_bool = partner is not None
+            post_label = f"Yes ({partner})" if partner else "No"
+            dss_text = f"{'Yes' if dss_pre_bool else 'No'} | {post_label}"
             dss_ok = dss_pre_bool == dss_post_bool
         else:
             dss_text, dss_ok = "-", None  # no Pre match - nothing to compare (new cell)
@@ -354,8 +357,10 @@ def compare_nr_cell_level(node_logs_text, ciq_wb):
         cellrange_text, cellrange_ok = _cmp(_nz(match["CellRange"]) if match else "", c.get("CellRange"))
         if match:
             dss_pre_bool = bool(match.get("DSS"))
-            dss_post_bool = str(c.get("DSS") or "").strip().upper() not in ("", "NO")
-            dss_text = f"{'Yes' if dss_pre_bool else 'No'} | {'Yes' if dss_post_bool else 'No'}"
+            dss_partner_raw = str(c.get("DSS") or "").strip()
+            dss_post_bool = dss_partner_raw.upper() not in ("", "NO")
+            post_label = f"Yes ({dss_partner_raw})" if dss_post_bool else "No"
+            dss_text = f"{'Yes' if dss_pre_bool else 'No'} | {post_label}"
             dss_ok = dss_pre_bool == dss_post_bool
         else:
             dss_text, dss_ok = "-", None  # no Pre match - nothing to compare (new cell)
