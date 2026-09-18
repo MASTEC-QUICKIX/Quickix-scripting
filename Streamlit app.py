@@ -1052,6 +1052,17 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
             rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "BBU Mode (BBU_TYPE)",
                          "comments": b["note"]})
 
+        # ── Board Type, CIQ vs EDP vs RFDS (Checklist rows 56/67, #5/#15/#13) ──
+        # Two independent disagreements possible per node; each routed to
+        # its own section rather than lumped into one merged verdict.
+        for b in results.get("board_type", []):
+            if b.get("edp_mismatch"):
+                rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "Board Type (DU type)",
+                             "comments": f"CIQ - {b.get('ciq_du_type')} | EDP - {b.get('edp_model')}"})
+            if b.get("rfds_mismatch"):
+                rows.append({"cell": b["node"], "source": "RFDS vs CIQ", "param": "Board Type (DU type)",
+                             "comments": f"CIQ DU type {b.get('ciq_du_type')} not found in RFDS"})
+
         # ── siad_port_size_bbu (Checklist row 24) ──────────────────────
         for b in rc.siad_port_size_mismatches(node_logs_text, ciq_wb, edp_rows or [], edp_node_ids):
             rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "SIAD_PORT_SIZE_BBU",
