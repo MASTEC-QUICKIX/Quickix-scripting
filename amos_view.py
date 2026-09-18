@@ -92,6 +92,7 @@ def build_node_summary(node_id, text):
         "type": node_type,
         "ptp_status": ptp_status(text),
         "sa_nsa_status": sa_nsa_status(text, nr_tac) if has_nr else "LTE Only",
+        "vonr_status": "VoNR Active" if pe.extract_vonr_status(text) else "Not Active",
     }
 
 
