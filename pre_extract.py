@@ -12,7 +12,7 @@ import re
 
 import ciq_edp_reader as cer
 
-from log_parser import find_command, all_rows, get_command_block
+from log_parser import find_command, all_rows, get_command_block, parse_log
 
 _SW_VERSION_RE = re.compile(
     r'Current SwVersion:\s*(?P<package>\S+)\s*\(\s*(?P<version>[^)]+?)\s*\)'
@@ -161,15 +161,20 @@ def extract_cell_to_sef(text):
     Pre-side radio product should treat it as NOT AVAILABLE rather than
     guess further down this chain."""
     block = get_command_block(text, 'SectorCarrier=|SectorEquipmentFunction')
-    if not block:
-        return {}
-    cell_to_sc = {}
-    for m in re.finditer(r'^(SectorCarrier=\S+)\s.*?EUtranCellFDD=(\S+)', block, re.M):
-        cell_to_sc[m.group(2)] = m.group(1)
-    sc_to_sef = {}
-    for m in re.finditer(r'^(SectorEquipmentFunction=\S+)\s.*?SectorCarrier=(\S+)', block, re.M):
-        sc_to_sef[f'SectorCarrier={m.group(2)}'] = m.group(1)
-    return {cell: sc_to_sef.get(sc) for cell, sc in cell_to_sc.items() if sc_to_sef.get(sc)}
+    if block:
+        cell_to_sc = {}
+        for m in re.finditer(r'^(SectorCarrier=\S+)\s.*?EUtranCellFDD=(\S+)', block, re.M):
+            cell_to_sc[m.group(2)] = m.group(1)
+        sc_to_sef = {}
+        for m in re.finditer(r'^(SectorEquipmentFunction=\S+)\s.*?SectorCarrier=(\S+)', block, re.M):
+            sc_to_sef[f'SectorCarrier={m.group(2)}'] = m.group(1)
+        result = {cell: sc_to_sef.get(sc) for cell, sc in cell_to_sc.items() if sc_to_sef.get(sc)}
+        if result:
+            return result
+    # kget-all/hget-all fallback (no narrow 'SectorCarrier=|SectorEquipment
+    # Function' command run) — same chain via direct attribute refs instead.
+    chain = _build_kget_all_sector_chain(text)
+    return {cell: v['sef'] for cell, v in chain.items() if v.get('sef')}
 
 
 def extract_cell_to_radio(text):
@@ -259,6 +264,167 @@ def extract_cell_to_radio(text):
             result[cell] = radio
         for cell in re.findall(r'NRCellDU=(\S+)', rest):
             result[cell] = radio
+    if result:
+        return result
+    # kget-all/hget-all fallback (no narrow 'sector rfbranch'/'FieldReplace
+    # ableUnit product'/'SectorCarrier=|...' commands run at all).
+    chain = _build_kget_all_sector_chain(text)
+    return {cell: v['radio_model'] for cell, v in chain.items() if v.get('radio_model')}
+
+
+def _kget_all_mo_index(text):
+    """{canonical MO DN: attrs row} for every MO in this text's 'kget all'/
+    'hget all' bulk dump(s), or {} if none was run. Built from parse_log()'s
+    Format-B (MO-block) tables — see log_parser.py's _parse_mo_block.
+    Keyed by _canon_dn() (see there for why the raw 'MO' value can't be
+    used directly as the key)."""
+    idx = {}
+    for entry in parse_log(text):
+        if not any(s in entry['command'].lower() for s in ('kget all', 'hget all')):
+            continue
+        for table in entry['tables']:
+            for row in table['rows']:
+                mo = row.get('MO')
+                if mo:
+                    idx[_canon_dn(mo)] = row
+    return idx
+
+
+def _canon_dn(dn):
+    """A kget-all row's own 'MO' value is the FULL DN
+    ('SubNetwork=ONRM_ROOT_MO,MeContext=X,ManagedElement=X,SectorCarrier=10'),
+    but every *reference* attribute pointing at another MO (sectorCarrierRef,
+    sectorFunctionRef, rfBranchTxRef, rfPortRef, ...) gives the RELATIVE form
+    starting at 'ManagedElement=' — confirmed real mismatch: idx.get(ref)
+    always missed even for a ref that was unambiguously the right MO, because
+    'ManagedElement=X,SectorCarrier=10' != 'SubNetwork=...,ManagedElement=X,
+    SectorCarrier=10' as dict keys. Slicing both to start at 'ManagedElement='
+    makes every MO's own 'MO' value and every OTHER MO's reference to it
+    compare equal, regardless of which form either one showed up in."""
+    if not dn:
+        return dn
+    i = dn.find('ManagedElement=')
+    return dn[i:] if i != -1 else dn
+
+
+def _dn_leaf(dn):
+    """Last RDN component of a DN: '...,SectorCarrier=10' -> 'SectorCarrier=10'."""
+    return dn.rsplit(',', 1)[-1] if dn else ''
+
+
+def _multi_ref(row, base):
+    """Every value of a multi-value attribute (row['<base>_all'], falling
+    back to the single flattened value log_parser.py always also stores
+    under the bare name) as a list of full DN strings, or [] if absent."""
+    vals = row.get(f'{base}_all')
+    if vals:
+        return vals
+    v = row.get(base)
+    return [v] if v else []
+
+
+def _build_kget_all_sector_chain(text):
+    """Cell -> {'sc', 'sef', 'tx_refs', 'rx_refs', 'fru', 'radio_model'},
+    for a 'kget all'/'hget all' bulk dump — the fallback path every one of
+    extract_cell_to_sef/extract_cell_to_radio/extract_rf_branch_refs/
+    extract_cell_to_fru uses when their narrow-command ('hget sector
+    rfbranch' etc.) text is absent, confirmed real gap: a kget-all-only Pre
+    log (no narrow commands run) made all four return {} even though the
+    same relationships are fully present in the bulk dump — just as direct
+    attribute REFERENCES on each MO instead of one compact per-command line.
+
+    Walks (confirmed against real ALL02141/ALL06141 kget-all dumps):
+        EUtranCellFDD/NRCellDU --sectorCarrierRef-->     SectorCarrier
+        SectorCarrier          --sectorFunctionRef-->    SectorEquipmentFunction
+        SectorCarrier          --rfBranchTxRef/RxRef-->  RfBranch (0+, multi-value)
+        RfBranch               --rfPortRef-->            FieldReplaceableUnit=RRU-N,RfPort=X
+        FieldReplaceableUnit   --productName (Struct)--> radio model
+    plus the same two fallbacks the narrow-command path already needed:
+      - AAS/integrated-antenna radios have NO RfBranch at all — the
+        SectorCarrier's own rfBranchTxRef/RxRef instead names
+        'FieldReplaceableUnit=AAS-...,Transceiver=1' DIRECTLY.
+      - A carrier sharing a SectorEquipmentFunction with other carriers
+        (e.g. an NR carrier co-sited under an LTE SEF) can have empty own
+        refs — falls back to the SEF's own rfBranchRef list.
+    Empty dict if this text has no bulk dump.
+    """
+    idx = _kget_all_mo_index(text)
+    if not idx:
+        return {}
+
+    fru_product = {}
+    for mo, row in idx.items():
+        leaf = _dn_leaf(mo)
+        if leaf.startswith('FieldReplaceableUnit=') and row.get('productName'):
+            fru_product[leaf.split('=', 1)[1]] = row['productName'].strip()
+
+    def resolve_ref(ref):
+        """One rfBranchTxRef/RxRef/rfBranchRef DN -> (fru_id, model)."""
+        ref = _canon_dn(ref)
+        # A direct AAS/integrated-antenna reference names the FRU right in
+        # this ref (no separate RfBranch MO at all) — confirmed real case,
+        # SectorEquipmentFunction=AMBN002141_N077A_1's rfBranchRef ->
+        # 'FieldReplaceableUnit=AAS-N077A_1,Transceiver=1'. Checking the
+        # substring directly (not "is this DN also an MO in idx?") matters:
+        # that exact DN, RDN suffix and all, CAN coincidentally match some
+        # unrelated child MO (e.g. a Transceiver=1 under the FRU) that has
+        # no rfPortRef — silently resolving to nothing instead of the FRU.
+        m = re.search(r'FieldReplaceableUnit=([^,\s]+)', ref)
+        if m:
+            fru_id = m.group(1)
+            return fru_id, fru_product.get(fru_id)
+        branch_row = idx.get(ref)
+        if not branch_row:
+            return None, None
+        port_ref = branch_row.get('rfPortRef')
+        m2 = re.search(r'FieldReplaceableUnit=([^,\s]+)', port_ref or '')
+        if not m2:
+            return None, None
+        fru_id = m2.group(1)
+        return fru_id, fru_product.get(fru_id)
+
+    result = {}
+    for mo, row in idx.items():
+        leaf = _dn_leaf(mo)
+        if not (leaf.startswith('EUtranCellFDD=') or leaf.startswith('NRCellDU=')):
+            continue
+        cell = leaf.split('=', 1)[1]
+        entry = {'sc': None, 'sef': None, 'tx_refs': [], 'rx_refs': [],
+                 'fru': None, 'radio_model': None}
+        # LTE and NR use different attribute names for the same two refs:
+        # EUtranCellFDD.sectorCarrierRef vs NRCellDU.nRSectorCarrierRef, and
+        # SectorCarrier.sectorFunctionRef vs NRSectorCarrier.
+        # sectorEquipmentFunctionRef (confirmed against ALL06141's AAS/CBAND
+        # NRCellDU=AMBN002141_N077A_1 chain) — try both.
+        sc_dn = row.get('sectorCarrierRef') or row.get('nRSectorCarrierRef')
+        sc_row = idx.get(_canon_dn(sc_dn)) if sc_dn else None
+        if sc_row:
+            entry['sc'] = _dn_leaf(sc_dn)
+            sef_dn = sc_row.get('sectorFunctionRef') or sc_row.get('sectorEquipmentFunctionRef')
+            entry['sef'] = _dn_leaf(sef_dn) if sef_dn else None
+            tx_refs = _multi_ref(sc_row, 'rfBranchTxRef')
+            rx_refs = _multi_ref(sc_row, 'rfBranchRxRef')
+            entry['tx_refs'] = tx_refs
+            entry['rx_refs'] = rx_refs
+            frus, models = set(), set()
+            for ref in tx_refs + rx_refs:
+                fru_id, model = resolve_ref(ref)
+                if fru_id:
+                    frus.add(fru_id)
+                if model:
+                    models.add(model)
+            if not frus and sef_dn:
+                for ref in _multi_ref(idx.get(_canon_dn(sef_dn), {}), 'rfBranchRef'):
+                    fru_id, model = resolve_ref(ref)
+                    if fru_id:
+                        frus.add(fru_id)
+                    if model:
+                        models.add(model)
+            if frus:
+                entry['fru'] = ", ".join(sorted(frus))
+            if models:
+                entry['radio_model'] = sorted(models)[0]
+        result[cell] = entry
     return result
 
 
@@ -269,7 +435,7 @@ def _format_branch_refs(refs, sep=" | ", pair_sep=","):
     display — confirmed against QUICKIX's own rendering convention."""
     pairs = []
     for ref in refs:
-        m = re.match(r'AntennaUnitGroup=(\d+),RfBranch=(\d+)', ref)
+        m = re.search(r'AntennaUnitGroup=(\d+),RfBranch=(\d+)', ref)
         if m:
             pairs.append((int(m.group(1)), int(m.group(2))))
     pairs.sort()
@@ -355,6 +521,24 @@ def extract_rf_branch_refs(text):
         sef = sc_to_sef.get(sc)
         sef_branches = _format_branch_refs(sef_refs.get(sef, []), pair_sep="-") if sef else ""
         result[cell] = {"tx_ref": tx_ref, "rx_ref": rx_ref, "sef_branches": sef_branches}
+    if result:
+        return result
+    # kget-all/hget-all fallback (no narrow 'sector rfbranch'/'SectorCarrier=
+    # |...' commands run at all) — refs come as full DNs here instead of the
+    # narrow command's bare 'AntennaUnitGroup=N,RfBranch=M' tokens;
+    # _format_branch_refs' own regex pulls that same substring out of either.
+    chain = _build_kget_all_sector_chain(text)
+    result = {}
+    for cell, v in chain.items():
+        tx_ref = _format_branch_refs(v['tx_refs'], pair_sep=",")
+        rx_ref = _format_branch_refs(v['rx_refs'], pair_sep=",")
+        sef_branches = ""
+        if v['sef']:
+            idx = _kget_all_mo_index(text)
+            sef_dn = next((mo for mo in idx if _dn_leaf(mo) == v['sef']), None)
+            if sef_dn:
+                sef_branches = _format_branch_refs(_multi_ref(idx[sef_dn], 'rfBranchRef'), pair_sep="-")
+        result[cell] = {"tx_ref": tx_ref, "rx_ref": rx_ref, "sef_branches": sef_branches}
     return result
 
 
@@ -438,7 +622,12 @@ def extract_cell_to_fru(text):
             continue
         for cell in re.findall(r'(?:EUtranCellFDD|NRCellDU)=(\S+)', rest):
             result[cell] = fru
-    return result
+    if result:
+        return result
+    # kget-all/hget-all fallback (no narrow 'rfbranch auport|rfportref'/
+    # 'sector rfbranch'/'SectorCarrier=|...' commands run at all).
+    chain = _build_kget_all_sector_chain(text)
+    return {cell: v['fru'] for cell, v in chain.items() if v.get('fru')}
 
 
 def extract_dss_status(text):
