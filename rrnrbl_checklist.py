@@ -151,6 +151,26 @@ def _agg_port_uniqueness(port_results):
     return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
 
 
+def _mmwave_rach_status(mmwave_results, ciq_wb):
+    """Row 61: most sites have ZERO mmWave (N260) sectors - that's the
+    normal case, not a data gap. Plain _agg([]) would read 'unknown' /
+    'No data (check did not run)', which wrongly looks like a failure.
+    Distinguishes 'no mmWave on this site' (na) from 'mmWave cells exist
+    but rachRootSequence couldn't be read' (genuinely unknown)."""
+    if mmwave_results:
+        return _agg(mmwave_results)
+    if ciq_wb is None or "5G Info" not in ciq_wb.sheetnames:
+        return "unknown", "No 5G Info tab — mmWave RACH not evaluated."
+    import band_labels as bl
+    has_mmwave_cell = any(
+        bl.is_mmwave_cell(r.get("NRCellDU"))
+        for r in cer.sheet_rows_as_dicts(ciq_wb["5G Info"])
+    )
+    if has_mmwave_cell:
+        return "unknown", "mmWave (N260) sectors present but rachRootSequence could not be read."
+    return "na", "No mmWave (N260) sectors on this site — rule does not apply."
+
+
 def _agg(results_list, note_fields=("node", "cell", "note")):
     """Any MISMATCH -> mismatch. Only MATCH/INFO seen -> match. Nothing but
     SKIPPED (or empty) -> unknown (no data to judge, not a pass)."""
@@ -1140,7 +1160,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (58, "CIQ tabs checks", "5g info", "NR TAC - Existing sectors - ENM", "NR/Radio", lambda: _nsa_sa_status(results.get("nr_tac", []))),
         (59, "CIQ tabs checks", "5g info", " NR TAC   - For newly added Carriers-  NSA= 0 & SA =7 digit value", "NR/Radio", lambda: _nr_sa_tac_status(ciq_wb)),
         (60, "CIQ tabs checks", "5g info", "6472 / AIR-6449 - C Band / AIR6419 - DOD - Check for the SEF/FRU -- Check for the SEF/FRU", "Radio", lambda: _agg(results.get("sef_fru", []))),
-        (61, "CIQ tabs checks", "5g info", "MMwave - Rach Should not Exceed 137 - PCI/RACH limitation", "Radio", lambda: _agg(results.get("mmwave_rach", []))),
+        (61, "CIQ tabs checks", "5g info", "MMwave - Rach Should not Exceed 137 - PCI/RACH limitation", "Radio", lambda: _mmwave_rach_status(results.get("mmwave_rach", []), ciq_wb)),
         (62, "CIQ tabs checks", "5g info", "Unique Port for 5G and LTE incase of Separate Radio - Ports and data ports ", "Radio", lambda: _agg_port_uniqueness(results.get("port_uniqueness", []))),
         (63, "CIQ tabs checks", "5g info", "Additional Check:  SOW – For 5G addition on an existing node, the snssaiList should match the existing 5G configuration.", "NR", None),
 
