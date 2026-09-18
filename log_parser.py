@@ -72,10 +72,100 @@ def _column_spans(header_line):
     return spans
 
 
+_MO_ATTR_LINE_RE = re.compile(r'^(\S+)(?:\s{2,}(.*))?$')
+_STRUCT_HDR_RE = re.compile(r'^Struct\s+\S+\s+has\s+\d+\s+members:\s*$')
+_MO_CONT_RE = re.compile(r'^>>>\s*(?:\d+\.)?(\w+)\s*=\s*(.*)$')
+
+
+def _parse_mo_block(lines, start, n):
+    """Parse one 'kget all'/'hget all' MO block starting at the sep line
+    that precedes 'Proxy Id'/'MO', i.e. lines[start] is that sep.
+
+    Shape (confirmed real 'kget all' output — one block per MO, attributes
+    listed vertically, NOT the fixed-width column table parse_tables()
+    otherwise expects):
+        ===...
+        Proxy Id                             <n>
+        MO                                   <dn>
+        ===...
+        attr1                                val1
+        attr2                                (blank)
+        Struct someField has N members:
+         >>> 1.member = val
+        multiValAttr[1]
+         >>> multiValAttr = val
+        ===...  (next block or end)
+
+    ' >>> ...' continuation lines (Struct members, extra reservedBy values)
+    are skipped — only the top-level 'name  value' line is kept, matching
+    what every extract_*() caller actually looks up by exact attribute name.
+
+    Returns (row_dict, next_index) or (None, start) if this isn't actually
+    a Proxy Id/MO header block (caller falls back to the column-table path).
+    """
+    if not (start + 3 < n
+            and lines[start + 1].lstrip().startswith('Proxy Id')
+            and lines[start + 2].lstrip().startswith('MO')
+            and _SEP_RE.match(lines[start + 3])):
+        return None, start
+
+    def _value(line):
+        m = _MO_ATTR_LINE_RE.match(line)
+        return (m.group(2) or '').strip() if m else ''
+
+    row = {'MO': _value(lines[start + 2]), 'Proxy Id': _value(lines[start + 1])}
+    j = start + 4
+    while j < n and not _SEP_RE.match(lines[j]):
+        line = lines[j]
+        stripped = line.strip()
+        if not stripped:
+            j += 1
+            continue
+        cont = _MO_CONT_RE.match(stripped)
+        if cont:
+            # Struct-member ('>>> 1.productName = X') and multi-value
+            # ('>>> reservedBy = X') continuation lines. A narrow 'get
+            # <MO> productName'-style command flattens these straight to a
+            # top-level 'productName' column; every extract_*() caller reads
+            # them that way (row.get('productName') etc.), so mirror that
+            # here too rather than dropping them. First value wins (matches
+            # existing single-value assumption elsewhere in this project) —
+            # never overwrites a genuine top-level attribute of the same name.
+            name = cont.group(1)
+            if name not in row:
+                row[name] = cont.group(2).strip()
+            j += 1
+            continue
+        if _STRUCT_HDR_RE.match(stripped):
+            j += 1
+            continue
+        m = _MO_ATTR_LINE_RE.match(line)
+        if m:
+            row[m.group(1)] = (m.group(2) or '').strip()
+        j += 1
+    return row, j
+
+
 def parse_tables(block_text):
-    """Extract every fixed-width '===...header...===...rows...===...Total: N MOs'
-    table found inside a command's output block. Returns a list of dicts:
+    """Extract every table found inside a command's output block. Handles two
+    distinct moshell output shapes and returns both as the same list of dicts:
     {'header': [...], 'rows': [{col: value, ...}, ...]}.
+
+    Format A — fixed-width column table (e.g. 'lt all', 'st cell'):
+        ===...header...===...rows...===...Total: N MOs (optional)
+    One row per data line, columns split by the header's 2+-space boundaries.
+
+    Format B — 'kget all'/'hget all' bulk MO dump: one block per MO, with
+    'Proxy Id'/'MO' as a two-line header and attributes listed vertically
+    (one per line) rather than as table columns. Each MO becomes its own
+    single-row table so all_rows() flattens it identically to Format A —
+    every extract_*(parsed) caller already expects row.get('MO') / row.get(
+    attr_name) directly (the wide-table shape _row_value()'s docstring
+    describes), it just never had a parser that actually produced it for
+    this log shape. Confirmed real gap: pure 'kget all'-only Pre logs (no
+    narrow 'get <MO> <attr>' commands run) parsed to zero identity/hardware
+    rows — find_command()+all_rows() had nothing to read even though the
+    data was in the block the whole time.
 
     Deliberately tolerant: a missing 'Total:' line (some blocks omit it) doesn't
     stop table extraction, since the next separator line reliably closes the row
@@ -87,6 +177,11 @@ def parse_tables(block_text):
     n = len(lines)
     while i < n:
         if _SEP_RE.match(lines[i]):
+            mo_row, next_i = _parse_mo_block(lines, i, n)
+            if mo_row is not None:
+                tables.append({'header': list(mo_row.keys()), 'rows': [mo_row]})
+                i = next_i
+                continue
             # Expect: sep, header, sep, rows..., sep, (optional 'Total: N MOs')
             if i + 2 < n and _SEP_RE.match(lines[i + 2]):
                 header_line = lines[i + 1]
