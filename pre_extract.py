@@ -417,12 +417,21 @@ def extract_cell_to_fru(text):
 
 
 def extract_dss_status(text):
-    """Cell -> True/False Pre-existing DSS, from SectorCarrier's essScPairId/
-    essScLocalId ('get . essScLocalId' / 'get . essScPairId' commands) both
-    being non-zero — same rule as QUICKIX HTML's dssActive flag. Confirmed
-    against a real log (HXL04147): SectorCarrier=7_3/8_3/9_3 all report
-    non-zero essScLocalId + essScPairId and correspond to the site's actual
-    DSS-active cells; SectorCarrier=7_1/7_2/etc. report 0/0 and are not DSS.
+    """Cell -> True/False Pre-existing DSS, from SectorCarrier's/
+    NRSectorCarrier's essScPairId/essScLocalId ('get . essScLocalId' /
+    'get . essScPairId' commands) both being non-zero — same rule as
+    QUICKIX HTML's dssActive flag. Confirmed against a real log (HXL04147):
+    SectorCarrier=7_3/8_3/9_3 all report non-zero essScLocalId + essScPairId
+    and correspond to the site's actual DSS-active cells; SectorCarrier=
+    7_1/7_2/etc. report 0/0 and are not DSS.
+
+    Real bug this fixes: the local_id/pair_id regexes only matched literal
+    'SectorCarrier=' at line start, so 'NRSectorCarrier=X essScLocalId ...'
+    (confirmed real line: 'NRSectorCarrier=FCON094120_N005A_1  essScLocalId')
+    never matched at all - every 5G cell's Pre DSS status silently came back
+    False regardless of its actual value, even when its PAIRED LTE cell
+    correctly showed active (confirmed: HXL04147_9A_1 Pre=Yes, its DSS
+    partner HXIN010147_N002A_1 Pre=No, for what should be the same pair).
 
     An earlier version of this file claimed no DSS signal exists in Pre
     kget-all logs — that was wrong; 'get . essScLocalId'/'get . essScPairId'
@@ -431,10 +440,10 @@ def extract_dss_status(text):
     if not text:
         return {}
     local_id = {}
-    for m in re.finditer(r'^(SectorCarrier=\S+)\s+essScLocalId\s+(\S+)', text, re.M):
+    for m in re.finditer(r'^((?:NR)?SectorCarrier=\S+)\s+essScLocalId\s+(\S+)', text, re.M):
         local_id[m.group(1)] = m.group(2)
     pair_id = {}
-    for m in re.finditer(r'^(SectorCarrier=\S+)\s+essScPairId\s+(\S+)', text, re.M):
+    for m in re.finditer(r'^((?:NR)?SectorCarrier=\S+)\s+essScPairId\s+(\S+)', text, re.M):
         pair_id[m.group(1)] = m.group(2)
 
     sc_active = {}
