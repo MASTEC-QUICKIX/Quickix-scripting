@@ -128,12 +128,18 @@ def _parse_mo_block(lines, start, n):
             # <MO> productName'-style command flattens these straight to a
             # top-level 'productName' column; every extract_*() caller reads
             # them that way (row.get('productName') etc.), so mirror that
-            # here too rather than dropping them. First value wins (matches
-            # existing single-value assumption elsewhere in this project) —
-            # never overwrites a genuine top-level attribute of the same name.
+            # here too rather than dropping them. First value wins under the
+            # bare name (matches existing single-value assumption elsewhere
+            # in this project) and is never overwritten by a later one or by
+            # a genuine top-level attribute of the same name; every value
+            # (including the first) also collects under '<name>_all' for
+            # callers that need the full multi-value list (e.g. a
+            # SectorCarrier's several rfBranchTxRef entries).
             name = cont.group(1)
+            val = cont.group(2).strip()
             if name not in row:
-                row[name] = cont.group(2).strip()
+                row[name] = val
+            row.setdefault(f'{name}_all', []).append(val)
             j += 1
             continue
         if _STRUCT_HDR_RE.match(stripped):
