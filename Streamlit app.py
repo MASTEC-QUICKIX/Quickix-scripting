@@ -1063,6 +1063,12 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
                 rows.append({"cell": b["node"], "source": "RFDS vs CIQ", "param": "Board Type (DU type)",
                              "comments": f"CIQ DU type {b.get('ciq_du_type')} not found in RFDS"})
 
+        # ── XMU, CIQ vs RFDS (Checklist row 86, #27) ───────────────────
+        for x in results.get("xmu", []):
+            if x.get("status") == "MISMATCH":
+                rows.append({"cell": x["node"], "source": "RFDS vs CIQ", "param": "XMU",
+                             "comments": x.get("note", "")})
+
         # ── siad_port_size_bbu (Checklist row 24) ──────────────────────
         for b in rc.siad_port_size_mismatches(node_logs_text, ciq_wb, edp_rows or [], edp_node_ids):
             rows.append({"cell": b["node"], "source": "KGET vs EDP", "param": "SIAD_PORT_SIZE_BBU",
