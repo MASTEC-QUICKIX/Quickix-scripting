@@ -867,18 +867,40 @@ def _mme_region_status(ciq_wb):
     return "match", f"N2E site — {len(rows)} node(s), MME Region correctly N-RAN."
 
 
-def _n2e_detection_status(ciq_wb):
-    """Row 91 ('Nokia info present means N2E site else NSB'): same
-    Nokia_Info-tab-presence signal _mme_region_status uses to decide
-    N2E-ness (real non-empty 'Nokia Cell Id' cell = N2E), surfaced here as
-    its own informational row rather than folded into the MME Region
-    check."""
-    if not ciq_wb or "Nokia_Info" not in ciq_wb.sheetnames:
-        return "unknown", "No Nokia_Info tab in CIQ."
-    nokia_rows = cer.sheet_rows_as_dicts(ciq_wb["Nokia_Info"])
-    is_n2e = any(_norm(r.get("Nokia Cell Id")) for r in nokia_rows)
-    return ("info", "Nokia_Info has cell data — N2E site.") if is_n2e else \
-           ("info", "Nokia_Info empty — NSB site.")
+def _n2e_detection_status(ciq_wb, node_logs_text=None):
+    """Row 91 ('Nokia info present means N2E site else NSB'): NOT a
+    CIQ-only classification - Pre-log presence changes the meaning of an
+    empty/missing Nokia_Info tab entirely:
+
+      Nokia empty/missing + no Pre logs  -> NSB  (brand-new site, nothing
+                                                    was ever live to log)
+      Nokia present        + no Pre logs  -> N2E  (migrating off Nokia,
+                                                    no prior Ericsson kit)
+      Nokia empty/missing  + Pre logs present -> Legacy scope (site was
+                                                    already live on
+                                                    Ericsson, no Nokia
+                                                    ever involved)
+      Nokia present        + Pre logs present -> should not occur in
+                                                    practice (confirmed);
+                                                    flagged manual as a
+                                                    safety net if bad
+                                                    data ever produces it
+
+    Nokia_Info presence signal: same as _mme_region_status (real
+    non-empty 'Nokia Cell Id' cell = Nokia data present)."""
+    has_nokia = False
+    if ciq_wb and "Nokia_Info" in ciq_wb.sheetnames:
+        nokia_rows = cer.sheet_rows_as_dicts(ciq_wb["Nokia_Info"])
+        has_nokia = any(_norm(r.get("Nokia Cell Id")) for r in nokia_rows)
+    has_pre = bool(node_logs_text) and any(t for t in node_logs_text.values())
+
+    if has_nokia and has_pre:
+        return "manual", "Nokia_Info has cell data AND Pre logs exist — combination not yet defined, verify manually."
+    if has_nokia:
+        return "info", "Nokia_Info has cell data, no Pre logs — N2E site."
+    if has_pre:
+        return "info", "No Nokia_Info data, but Pre logs exist — Legacy scope (pre-existing Ericsson site)."
+    return "info", "No Nokia_Info data, no Pre logs — NSB site."
 
 
 def _nr_sa_tac_status(ciq_wb):
@@ -1225,7 +1247,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (88, "CIQ tabs checks", "Losses and delay", "Check for Losses delay matches to FDD and TxRx", "Radio", lambda: _agg(results.get("losses_vs_antenna", []))),
         (89, "CIQ tabs checks", "Antenna Information", "AntennaUnit/AntennaSubunit should unique for the band wise", "Radio", lambda: _agg(results.get("antenna", []))),
         (90, "CIQ tabs checks", "Sector Movement / Deletion sheet", "All source cells cellid/SSB/ BW matching with ENM and all target cells with eUtan tab", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
-        (91, "CIQ tabs checks", "Nokia Info tab", "Nokia info present means N2E site else NSB", "NR/Radio", lambda: _n2e_detection_status(ciq_wb)),
+        (91, "CIQ tabs checks", "Nokia Info tab", "Nokia info present means N2E site else NSB", "NR/Radio", lambda: _n2e_detection_status(ciq_wb, node_logs_text)),
 
         # "IP Validation Pre Vs EDP" and "Rehoming sites" (old rows 75-76)
         # were dropped from the V3 template — not carried over.
