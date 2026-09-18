@@ -1064,24 +1064,43 @@ def _high_capacity_status(ciq_wb):
     return "info", "No cells marked High Capacity Site."
 
 
-def _cellrange_status(ciq_wb):
-    """Row 74's cellrange portion, blue-marked in the rule-mapping sheet:
-    'We can make it read from eUtran Parameters tab of CIQ'. qRxLevMin
-    and crsgain are NOT covered — no CIQ column maps to either and no
-    Pre/RFDS extraction exists for them, so they stay manual (per the
-    honesty convention: display what's actually read, don't imply the
-    whole row title is automated)."""
+def _cellrange_status(node_logs_text, ciq_wb):
+    """Row 74's cellrange portion: for EXISTING (pre-existing/commercial)
+    sectors, cellRange must match Pre/ENM exactly — reuses the same
+    Pre-vs-CIQ comparison already computed for the Audit tab
+    (pre_post_audit.compare_lte_cell_level/compare_nr_cell_level)
+    instead of only checking whether CIQ's own column is populated.
+    Newly-added sectors (row_type == 'new') have no Pre value to compare
+    against, so they are skipped here, not flagged.
+    qRxLevMin and crsgain are NOT covered — no CIQ column maps to either
+    and no Pre/RFDS extraction exists for them, so they stay manual."""
+    tail = " (qRxLevMin/crsgain: manual — no CIQ column mapped, no Pre/RFDS source.)"
     if not ciq_wb or "eUtran Parameters" not in ciq_wb.sheetnames:
         return "unknown", "No eUtran Parameters sheet."
-    rows = [r for r in cer.sheet_rows_as_dicts(ciq_wb["eUtran Parameters"]) if _norm(r.get("EutranCellFDDId"))]
-    if not rows:
-        return "unknown", "No LTE cells in eUtran Parameters."
-    tail = " (qRxLevMin/crsgain: manual — no CIQ column mapped, no Pre/RFDS source.)"
-    missing = [r.get("EutranCellFDDId") for r in rows if not _norm(r.get("cellRange"))]
-    if missing:
-        return "manual", f"cellRange blank for: {', '.join(missing)} — verify manually.{tail}"
-    detail = "; ".join(f"{r.get('EutranCellFDDId')}={_norm(r.get('cellRange'))}" for r in rows)
-    return "info", f"cellRange: {detail}.{tail}"
+    if not node_logs_text:
+        return "manual", "No Pre kget logs uploaded — cellRange vs ENM not checked." + tail
+
+    import pre_post_audit as ppa
+    bad, checked = [], 0
+    for r in ppa.compare_lte_cell_level(node_logs_text, ciq_wb):
+        if r.get("row_type") == "new":
+            continue
+        checked += 1
+        if r.get("_cellrange_ok") is False:
+            bad.append(f"{r.get('cell')}: {r.get('cellrange')}")
+    for r in ppa.compare_nr_cell_level(node_logs_text, ciq_wb):
+        if r.get("row_type") == "new":
+            continue
+        checked += 1
+        if r.get("_cellrange_ok") is False:
+            bad.append(f"{r.get('cell')}: {r.get('cellrange')}")
+
+    if bad:
+        more = f" (+{len(bad) - 6} more)" if len(bad) > 6 else ""
+        return "mismatch", "; ".join(bad[:6]) + more + tail
+    if checked:
+        return "match", f"{checked} existing sector(s) checked, cellRange matches Pre." + tail
+    return "manual", "No pre-existing sectors to check (all new)." + tail
 
 
 def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_pages=None, node_logs_text=None):
@@ -1185,7 +1204,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (71, "CIQ tabs checks", "eUtran Parameters Tab", "RBB type/ noOfTx/noOfRx\nIdentify  ISDLONLY carrier", "NR/Radio", lambda: _agg_rbb_tx_isdlonly_4g(results.get("rbb_tx_isdlonly_4g", []))),
         (72, "CIQ tabs checks", "eUtran Parameters Tab", "cellId ENM vs CIQ \nIdentify cellid change SOW", "NR/Radio", lambda: _agg_cell_id(results.get("cell_id_vs_rfds", []))),
         (73, "CIQ tabs checks", "eUtran Parameters Tab", "High Capacity Site \n(Identify if its HC)", "NR", lambda: _high_capacity_status(ciq_wb)),
-        (74, "CIQ tabs checks", "eUtran Parameters Tab", "qRxLevMin | cellrange | crsgain ENM Vs CIQ", "NR", lambda: _cellrange_status(ciq_wb)),
+        (74, "CIQ tabs checks", "eUtran Parameters Tab", "qRxLevMin | cellrange | crsgain ENM Vs CIQ", "NR", lambda: _cellrange_status(node_logs_text, ciq_wb)),
         (75, "CIQ tabs checks", "eUtran Parameters Tab", "EutranCellFDDId/beamDirection should match with RFDS - EutranCell", "Radio", lambda: _agg_row60(results.get("cells_vs_rfds", []))),
         (76, "CIQ tabs checks", "eUtran Parameters Tab", "electricalAntennaTilt should be integer value not character - Tilt", "Radio", lambda: _agg_electrical_tilt_type(results.get("electrical_tilt_type", []))),
         (77, "CIQ tabs checks", "eUtran Parameters Tab", "configuredOutputPower depends on RRU type (Ericsson 4490, 4890, or 4472 radios (e.g., NSB or Allagi projects, New Carrier Adds, Radio Swaps) will be Configured with maximum allowed power of 160W.) - configuredOutputPower", "Radio", None),
