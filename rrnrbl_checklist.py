@@ -592,30 +592,6 @@ def _pre_detected_status(node_logs_text, what):
     return "mismatch", "Not detected in any Pre log — " + ("; ".join(missing) or "no usable log text.")
 
 
-def _vonr_status(node_logs_text):
-    """VoNR is informational, not a pass/fail - always renders green.
-    Reports which nodes have VoNR active vs not, per pe.extract_vonr_status()."""
-    import pre_extract as pe
-    if not node_logs_text:
-        return "unknown", "No Pre kget logs uploaded — nothing to detect."
-
-    active, inactive = [], []
-    for nid, text in node_logs_text.items():
-        if not text:
-            continue
-        (active if pe.extract_vonr_status(text) else inactive).append(nid)
-
-    if not active and not inactive:
-        return "unknown", "No usable Pre log text — VoNR not evaluated."
-
-    parts = []
-    if active:
-        parts.append(f"VoNR is active on {', '.join(active)}")
-    if inactive:
-        parts.append(f"VoNR is not active on {', '.join(inactive)}")
-    return "match", "; ".join(parts)
-
-
 def _filter(results_list, rule_prefix):
     return [r for r in results_list if str(r.get("rule", "")).strip() == rule_prefix]
 
@@ -1156,7 +1132,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (52, "CIQ tabs checks", "5g info", "DSS check", "NR/Radio", lambda: _agg(results.get("dss", []))),
         (53, "CIQ tabs checks", "5g info", "ssbFrequency /ssbOffset/ ssbDuration ", "NR/Radio", lambda: _agg_ssb_5g(results.get("ssb_5g", []))),
         (54, "CIQ tabs checks", "5g info", "NSA/SA", "NR/Radio", lambda: _nsa_sa_status(results.get("nr_tac", []))),
-        (55, "CIQ tabs checks", "5g info", "VoNR", "NR/Radio", lambda: _vonr_status(node_logs_text)),
+        (55, "CIQ tabs checks", "5g info", "VoNR", "NR/Radio", None),
         (56, "CIQ tabs checks", "5g info", "Make sure  BBU Type should match with RFDS and CIQ - BBU Type", "NR/Radio", lambda: _agg(board_type)),
         (57, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU/cellLocalId/RRU Type/ BeamDirection (Azimuth) /Antenna Type /Electrical Tilt must same as RFDS ", "Radio",
          lambda: _agg_row47(results.get("cells_vs_rfds", []), results.get("cell_id_vs_rfds_rcn", []), results.get("radio_type", []),
@@ -1164,7 +1140,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (58, "CIQ tabs checks", "5g info", "NR TAC - Existing sectors - ENM", "NR/Radio", lambda: _nsa_sa_status(results.get("nr_tac", []))),
         (59, "CIQ tabs checks", "5g info", " NR TAC   - For newly added Carriers-  NSA= 0 & SA =7 digit value", "NR/Radio", lambda: _nr_sa_tac_status(ciq_wb)),
         (60, "CIQ tabs checks", "5g info", "6472 / AIR-6449 - C Band / AIR6419 - DOD - Check for the SEF/FRU -- Check for the SEF/FRU", "Radio", lambda: _agg(results.get("sef_fru", []))),
-        (61, "CIQ tabs checks", "5g info", "MMwave - Rach Should not Exceed 137 - PCI/RACH limitation", "Radio", None),
+        (61, "CIQ tabs checks", "5g info", "MMwave - Rach Should not Exceed 137 - PCI/RACH limitation", "Radio", lambda: _agg(results.get("mmwave_rach", []))),
         (62, "CIQ tabs checks", "5g info", "Unique Port for 5G and LTE incase of Separate Radio - Ports and data ports ", "Radio", lambda: _agg_port_uniqueness(results.get("port_uniqueness", []))),
         (63, "CIQ tabs checks", "5g info", "Additional Check:  SOW – For 5G addition on an existing node, the snssaiList should match the existing 5G configuration.", "NR", None),
 
@@ -1207,7 +1183,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         # were dropped from the V3 template — not carried over.
 
         (94, "Pre checks", "ENM Pre-checks", "DSS and WCS Slim checks\nessscpairid | esssclocalid | AirIfLoadProfile|ailgRef", "NR", None),
-        (95, "Pre checks", "ENM Pre-checks", "VoNR Check \nget . Epsfallbackoperation | get CXC4012592", "NR", lambda: _vonr_status(node_logs_text)),
+        (95, "Pre checks", "ENM Pre-checks", "VoNR Check \nget . Epsfallbackoperation | get CXC4012592", "NR", None),
         (96, "Pre checks", "ENM Pre-checks", "hget EUtraNetwork=.,EUtranFrequency arfcnValueEUtranDl Limit for,\nGNBCUCPFunction=1 ---> 32\nENodeBFunction=1    ---> 24", "NR", None),
         (97, "Pre checks", "ENM Pre-checks", "Verfiy maxfreqcheck ", "NR", None),
         (98, "Pre checks", "ENM Pre-checks", "RIPORT", "Radio", lambda: _pre_detected_status(node_logs_text, "ports")),
