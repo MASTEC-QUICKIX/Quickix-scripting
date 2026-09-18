@@ -72,8 +72,11 @@ def is_5g_cell(cell_name):
 
 
 def is_mmwave_cell(cell_name):
-    """Rule #10: mmWave identification signal, per confirmed decision - N260 band marker."""
-    return bool(re.search(r'_N260[A-F]_\d+$', str(cell_name or '')))
+    """Rule #10: mmWave identification signal, per confirmed decision - N260 band marker.
+    Real cell names carry a trailing suffix after the carrier number
+    (e.g. 'ILRN004372_N260A_1_M') - not anchored to end right after the
+    digit, or every mmWave cell on a real CIQ silently matches nothing."""
+    return bool(re.search(r'_N260[A-F]_\d+(?:_\S+)?$', str(cell_name or '')))
 
 
 def is_cband_cell(cell_name):
