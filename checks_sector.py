@@ -372,8 +372,9 @@ def check_nr_tac(node_id, log_text, ciq_wb, has_pre_log, has_amf, g_name=None, n
 
 
 def check_mmwave_rach(node_id, ciq_wb):
-    """Rule #10 - mmWave (N260) rachRootSequence must not exceed 137.
-    CIQ-only check, no Pre comparison (per blueprint)."""
+    """Rule #10 - mmWave (N260) rachRootSequence must be strictly less
+    than 137 (137 itself fails). CIQ-only check, no Pre comparison (per
+    blueprint)."""
     fiveg_rows = _rows(ciq_wb, '5G Info')
     results = []
     for row in fiveg_rows:
@@ -387,11 +388,11 @@ def check_mmwave_rach(node_id, ciq_wb):
             results.append({'rule': '#10', 'node': node_id, 'cell': cell, 'status': 'MISMATCH',
                              'rachRootSequence': rach, 'note': 'rachRootSequence not numeric.'})
             continue
-        exceeded = rach_val > 137
+        exceeded = rach_val >= 137
         results.append({'rule': '#10', 'node': node_id, 'cell': cell,
                          'status': 'MISMATCH' if exceeded else 'MATCH',
                          'rachRootSequence': rach_val,
-                         'note': f'rachRootSequence exceeded 137 for the MMWave sector : {cell}' if exceeded else 'Within limit.'})
+                         'note': f'rachRootSequence must be < 137 for the MMWave sector {cell} (found {rach_val}).' if exceeded else 'Within limit.'})
     return results
 
 
