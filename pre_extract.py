@@ -828,22 +828,38 @@ def extract_identity(parsed):
     attribute shape row.get('eNBId') assumes."""
     result = {'eNBId': None, 'gNBId': None, 'gNBIdLength': None}
     fallback_gnbid, fallback_gnbid_len = None, None
-    for entry in (find_command(parsed, 'eNBId'), find_command(parsed, 'gNBId')):
+    # Narrow 'get <MO> eNBId'/'get <MO> gNBId' commands match by command text.
+    # A bulk 'kget all'/'hget all' dump's command text is just that — it never
+    # contains 'eNBId' or 'gNBId' — so find_command() alone misses it even
+    # though parse_tables() now parses its MO blocks into the same row shape.
+    # Confirmed real case: kget-all-only Pre logs (no narrow commands run at
+    # all) returned None for both IDs regardless of the data being present.
+    entries = [find_command(parsed, 'eNBId'), find_command(parsed, 'gNBId')]
+    entries += [e for e in parsed if any(s in e['command'].lower() for s in ('kget all', 'hget all'))]
+    for entry in entries:
         if entry is None:
             continue
         for row in all_rows(entry):
+            # Narrow 'get <MO> <attr>' commands report MO as the short relative
+            # name ('ENodeBFunction=1'). A bulk kget-all/hget-all dump reports
+            # the full DN ('SubNetwork=...,ManagedElement=X,ENodeBFunction=1')
+            # instead — mo.startswith('ENodeBFunction') never matches that, so
+            # every ID silently dropped on kget-all-only logs even once the
+            # row itself was found. Checking the DN's last RDN component
+            # handles both shapes.
             mo = row.get('MO', '')
+            mo_leaf = mo.rsplit(',', 1)[-1]
             enbid = _row_value(row, 'eNBId')
             gnbid = _row_value(row, 'gNBId')
             gnbid_len = _row_value(row, 'gNBIdLength')
-            if mo.startswith('ENodeBFunction') and enbid:
+            if mo_leaf.startswith('ENodeBFunction') and enbid:
                 result['eNBId'] = enbid
-            elif mo.startswith('GNBDUFunction'):
+            elif mo_leaf.startswith('GNBDUFunction'):
                 if gnbid:
                     result['gNBId'] = gnbid
                 if gnbid_len:
                     result['gNBIdLength'] = gnbid_len
-            elif mo.startswith(('GNBCUUPFunction', 'GNBCUCPFunction')):
+            elif mo_leaf.startswith(('GNBCUUPFunction', 'GNBCUCPFunction')):
                 if gnbid and fallback_gnbid is None:
                     fallback_gnbid = gnbid
                 if gnbid_len and fallback_gnbid_len is None:
@@ -863,14 +879,27 @@ def extract_hardware(parsed):
     needs the same family word stripped/matched on the numeric token by the
     caller (mirrors QUICKIX's hw_string()/extract_pre_hw() approach of
     comparing the last whitespace token)."""
+    # Narrow 'get ^FieldReplaceableUnit product...' command matches by command
+    # text. A bulk 'kget all'/'hget all' dump's command text is just that —
+    # never contains 'FieldReplaceableUnit product' — so find_command() alone
+    # returns None and every board/radio/xmu drops on kget-all-only logs even
+    # though every FieldReplaceableUnit MO (with its productName) is in the
+    # dump. Scan bulk-dump entries too, filtering by MO leaf prefix instead.
     entry = find_command(parsed, 'FieldReplaceableUnit product')
+    bulk_entries = [e for e in parsed if any(s in e['command'].lower() for s in ('kget all', 'hget all'))]
     boards, radios, xmus, other = [], [], [], []
-    if not entry:
+    if not entry and not bulk_entries:
         return {'boards': boards, 'radios': radios, 'xmus': xmus, 'other': other}
-    for row in all_rows(entry):
+    rows = list(all_rows(entry)) if entry else []
+    for e in bulk_entries:
+        for row in all_rows(e):
+            if row.get('MO', '').rsplit(',', 1)[-1].startswith('FieldReplaceableUnit') and row.get('productName'):
+                rows.append(row)
+    for row in rows:
         mo = row.get('MO', '')
+        mo_leaf = mo.rsplit(',', 1)[-1]
         item = {'mo': mo, 'model': row.get('productName', '').strip()}
-        if mo.upper().startswith('FIELDREPLACEABLEUNIT=XMU'):
+        if mo_leaf.upper().startswith('FIELDREPLACEABLEUNIT=XMU'):
             xmus.append(item)
         elif 'RRU-' in mo.upper() or item['model'].upper().startswith('RADIO'):
             radios.append(item)
