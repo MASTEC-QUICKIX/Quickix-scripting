@@ -433,6 +433,26 @@ def extract_dss_status(text):
     correctly showed active (confirmed: HXL04147_9A_1 Pre=Yes, its DSS
     partner HXIN010147_N002A_1 Pre=No, for what should be the same pair).
 
+    SECOND real bug, found and fixed in the same pass (confirmed on a real
+    log, HXL04147.log): a cell with a genuinely BLANK essScLocalId/
+    essScPairId value (no DSS at all, e.g. HXIN010147_N005A_1/B_1/C_1) was
+    being read as ACTIVE. The value regex was '\\s+(\\S+)' — \\s+ matches
+    newlines too, so on a blank value it skipped straight over the line
+    break and captured the NEXT SC's own identifier string as if it were
+    THIS line's value (confirmed: N005A_1's essScLocalId was read as the
+    literal string 'NRSectorCarrier=HXIN010147_N005B_1') - a non-'0',
+    non-empty string, so it read as active. This produced an alternating
+    false-positive/true-negative chain down consecutive blank rows (N005A_1
+    wrongly True, N005B_1 correctly False only because its own line got
+    consumed as N005A_1's 'value' and never matched on its own, N005C_1
+    wrongly True again from bleeding into whatever followed it) - exactly
+    the 'multi-line regex with greedy \\s* crosses row boundaries on empty
+    fields' failure mode already on this project's own list of confirmed
+    parser gotchas, just not yet applied here. Fixed by restricting the
+    whitespace BEFORE the value to '[ \\t]+' (horizontal only, can't cross
+    a newline) - a genuinely blank value now correctly fails to match
+    instead of absorbing the next line.
+
     An earlier version of this file claimed no DSS signal exists in Pre
     kget-all logs — that was wrong; 'get . essScLocalId'/'get . essScPairId'
     carry it directly, just not through the same 'hget' table commands the
@@ -440,10 +460,10 @@ def extract_dss_status(text):
     if not text:
         return {}
     local_id = {}
-    for m in re.finditer(r'^((?:NR)?SectorCarrier=\S+)\s+essScLocalId\s+(\S+)', text, re.M):
+    for m in re.finditer(r'^((?:NR)?SectorCarrier=\S+)[ \t]+essScLocalId[ \t]+(\S+)', text, re.M):
         local_id[m.group(1)] = m.group(2)
     pair_id = {}
-    for m in re.finditer(r'^((?:NR)?SectorCarrier=\S+)\s+essScPairId\s+(\S+)', text, re.M):
+    for m in re.finditer(r'^((?:NR)?SectorCarrier=\S+)[ \t]+essScPairId[ \t]+(\S+)', text, re.M):
         pair_id[m.group(1)] = m.group(2)
 
     sc_active = {}
