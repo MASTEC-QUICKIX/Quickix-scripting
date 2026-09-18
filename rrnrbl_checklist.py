@@ -1039,19 +1039,28 @@ def _high_capacity_status(ciq_wb):
     """Row 73 ('High Capacity Site (Identify if its HC)'), blue-marked in
     the rule-mapping sheet: 'We can make it read from eUtran Parameters
     tab of CIQ' — a direct read of CIQ's own 'High Capacity Site' column,
-    not a Pre/RFDS comparison (no other source declares HC status)."""
+    not a Pre/RFDS comparison (no other source declares HC status).
+
+    Priority: ANY cell marked Yes/True makes this a HC site — that
+    verdict must surface even if other cells on the same node are blank.
+    Only when NOTHING says Yes do blanks become the blocking issue
+    (can't confirm it's NOT a HC site), and only when every cell has an
+    explicit answer (no blanks, no Yes) is it confirmed not HC."""
     if not ciq_wb or "eUtran Parameters" not in ciq_wb.sheetnames:
         return "unknown", "No eUtran Parameters sheet."
     rows = [r for r in cer.sheet_rows_as_dicts(ciq_wb["eUtran Parameters"]) if _norm(r.get("EutranCellFDDId"))]
     if not rows:
         return "unknown", "No LTE cells in eUtran Parameters."
-    missing = [r.get("EutranCellFDDId") for r in rows if not _norm(r.get("High Capacity Site"))]
     hc_cells = [r.get("EutranCellFDDId") for r in rows
                 if _norm(r.get("High Capacity Site")).upper() in ("TRUE", "YES", "Y")]
+    missing = [r.get("EutranCellFDDId") for r in rows if not _norm(r.get("High Capacity Site"))]
+    if hc_cells:
+        note = f"High Capacity Site = TRUE for: {', '.join(hc_cells)}."
+        if missing:
+            note += f" (Blank for {', '.join(missing)} — verify those manually.)"
+        return "info", note
     if missing:
         return "manual", f"High Capacity Site blank for: {', '.join(missing)} — verify manually."
-    if hc_cells:
-        return "info", f"High Capacity Site = TRUE for: {', '.join(hc_cells)}."
     return "info", "No cells marked High Capacity Site."
 
 
