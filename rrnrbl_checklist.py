@@ -81,12 +81,15 @@ STATUS_META = {
 # MATCH / MISMATCH / SKIPPED / INFO - see checks_sector.py).
 # ══════════════════════════════════════════════════════════════════════
 
-def _agg_row66(cell_id_results, uniqueness_results):
-    """Row 66: combines the Pre-vs-CIQ cellId comparison (cell_id_vs_rfds,
-    shared with rows 40/59/74) with the NEW cellId uniqueness check —
-    unlike PCI, cellId must be unique across ALL bands on one node, not
-    scoped per-band. Same grouping convention as the other rows."""
-    all_results = cell_id_results + uniqueness_results
+def _agg_row66(cell_id_results, uniqueness_results, rfds_rcn_results):
+    """Row 82 ('...N2E/NSB site CellId should be match with RFDS'):
+    combines THREE sources — Pre-vs-CIQ cellId (cell_id_vs_rfds, shared
+    with rows 72/90), CIQ-internal cellId uniqueness (unlike PCI, cellId
+    must be unique across ALL bands on one node, not scoped per-band),
+    and CIQ-vs-RFDS RCN (cell_id_vs_rfds_rcn, rule #6/#37 - the row
+    title's own 'match with RFDS' requirement, previously missing here).
+    Same grouping convention as the other rows."""
+    all_results = cell_id_results + uniqueness_results + rfds_rcn_results
     if not all_results:
         return "unknown", "No data (check did not run for this site)."
     real = [r for r in all_results if r.get("status") not in (None, "SKIPPED")]
@@ -100,6 +103,8 @@ def _agg_row66(cell_id_results, uniqueness_results):
     def _reason(r):
         if r.get("rule") == "#66U":
             return "Cell ID uniqueness clash"
+        if r.get("rule") == "#6/#37":
+            return "Cell ID vs RFDS RCN mismatch"
         return "Cell ID mismatch"
 
     return "mismatch", _group_bad_by_node_reason(bad, real, _reason)
@@ -1236,7 +1241,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (80, "CIQ tabs checks", "eUtran Parameters Tab", "2) Check for sectorID for  4890 Radio Type. \"_s\" should not be present", "Radio", lambda: _agg(results.get("sector_id_4890", []))),
         (81, "CIQ tabs checks", "eUtran Parameters Tab", "PhysicalLayerCellIdGroup and physicalLayerSubCellId should be unique - PCI", "Radio", lambda: _agg(results.get("pci_4g", []) + results.get("pci_5g", []))),
         (82, "CIQ tabs checks", "eUtran Parameters Tab", "Pre-existing node cellId must be same as ENM & N2E/NSB site CellId should be match with RFDS - Cellid", "NR/Radio",
-         lambda: _agg_row66(results.get("cell_id_vs_rfds", []), results.get("cellid_uniqueness_4g", []))),
+         lambda: _agg_row66(results.get("cell_id_vs_rfds", []), results.get("cellid_uniqueness_4g", []), results.get("cell_id_vs_rfds_rcn", []))),
         (83, "CIQ tabs checks", "eUtran Parameters Tab", "Riport should be unique", "Radio", lambda: _agg_port_uniqueness(results.get("port_uniqueness", []))),
         (84, "CIQ tabs checks", "eUtran Parameters Tab", "tmaType / tmaConfiguration", "Radio", None),
         (85, "CIQ tabs checks", "eUtran Parameters Tab", "antenna model", "Radio",
