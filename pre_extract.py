@@ -102,6 +102,31 @@ def extract_cell_range(text):
     return result
 
 
+def extract_cell_range_5g(text):
+    """cellRange per 5G cell - same 'kget all' full per-object attribute
+    dump as extract_cell_range(), keyed on 'MO ... NRCellDU=X' instead of
+    EUtranCellFDD=X. Confirmed on a real log (FCL04120.txt):
+    'MO ... NRCellDU=FCON094120_N005A_1' block contains 'cellLocalId  25'
+    then 'cellRange  23000' as sibling lines - CIQ's own '5G Info!CellRange'
+    column carries the SAME raw value (23000, no unit scaling needed;
+    confirmed against real CIQ for that exact cell). Best-effort: returns
+    {} if kget all wasn't captured for this node."""
+    result = {}
+    if not text:
+        return result
+    headers = list(re.finditer(r'^MO\s+\S*NRCellDU=([^\s,]+)\s*$', text, re.M))
+    for i, block_m in enumerate(headers):
+        cell = block_m.group(1)
+        if cell in result:
+            continue
+        window_end = headers[i + 1].start() if i + 1 < len(headers) else block_m.end() + 50000
+        window = text[block_m.end():window_end]
+        m = re.search(r'^cellRange\s+(\S+)', window, re.M)
+        if m:
+            result[cell] = m.group(1)
+    return result
+
+
 def extract_cell_to_sef(text):
     """Cell -> SectorEquipmentFunction number, via the
     SectorCarrier=|SectorEquipmentFunction hget block's reservedBy
