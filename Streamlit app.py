@@ -1198,9 +1198,10 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
                     rows.append(_mm_row(r.get("cell") or "\u2014", "KGET vs CIQ", label, "KGET",
                                          pre.strip(), ciq.strip()))
         _NR_PP_FIELDS = [("cellid", "_cellid_ok", "Cell ID"), ("dl", "_dl_ok", "ARFCN DL"),
-                         ("ul", "_ul_ok", "ARFCN UL"), ("bwdl", "_bwdl_ok", "BW DL"),
-                         ("bwul", "_bwul_ok", "BW UL"), ("power", "_power_ok", "Power"),
-                         ("ssb", "_ssb_ok", "SSB"), ("rru", "_rru_ok", "RRU")]
+                         ("ul", "_ul_ok", "ARFCN UL"), ("bw_dl", "_bw_dl_ok", "BW DL"),
+                         ("bw_ul", "_bw_ul_ok", "BW UL"), ("power", "_power_ok", "Power"),
+                         ("ssb", "_ssb_ok", "SSB"), ("rru", "_rru_ok", "RRU"),
+                         ("cellrange", "_cellrange_ok", "Cell Range"), ("dss", "_dss_ok", "DSS")]
         for r in ppa.compare_nr_cell_level(node_logs_text, ciq_wb):
             if r.get("row_type") == "new":
                 continue
@@ -1589,6 +1590,7 @@ with tab_audit:
                 ("cellid", "_cellid_ok", "Cell ID"), ("dl", "_dl_ok", "ARFCN DL"), ("ul", "_ul_ok", "ARFCN UL"),
                 ("bw_dl", "_bw_dl_ok", "BW DL"), ("bw_ul", "_bw_ul_ok", "BW UL"), ("power", "_power_ok", "TX Power"),
                 ("ssb", "_ssb_ok", "SSB Frequency"), ("rru", "_rru_ok", "RRU Model"),
+                ("cellrange", "_cellrange_ok", "Cell Range"), ("dss", "_dss_ok", "DSS"),
             ]), unsafe_allow_html=True)
         else:
             st.caption("Upload Pre kget-all logs to see the LTE/5G cell-level Pre vs Post tables.")
