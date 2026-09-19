@@ -2063,6 +2063,45 @@ def check_wcs_slim(node_id, log_text):
              'note': 'AirIfLoadProfile is non WCS_Slim for WCS sectors.'}]
 
 
+# hget EUtraNetwork=.,EUtranFrequency arfcnValueEUtranDl - hard MO-count
+# ceilings per function type, confirmed via screenshot + two real captures
+# (ECL00116.txt, ECL07116R.txt): 32 EUtranFrequency instances max under
+# GNBCUCPFunction=1 (5G side), 24 max under ENodeBFunction=1 (LTE side).
+_EUTRANFREQ_LIMITS = {'gnbcucp': (32, 'GNBCUCPFunction=1'), 'enodeb': (24, 'ENodeBFunction=1')}
+
+
+def check_eutranfreq_limit(node_id, log_text):
+    """Row 96: counts EUtranFrequency MO instances per function type via
+    pe.extract_eutranfreq_counts() and flags whichever side exceeds its
+    fixed ceiling (32 for GNBCUCPFunction=1, 24 for ENodeBFunction=1).
+    A single-tech node reports only its own side (confirmed on
+    ECL07116R.txt, LTE-only, no GNBCUCPFunction table at all); a dual
+    MMBB node reports both independently (confirmed on ECL00116.txt,
+    20/32 and 22/24 - both under limit there).
+
+    SKIPPED (not NA) when the hget itself wasn't captured for this node -
+    confirmed real gap (HXL00147.log/HXL04147.log never run it) that
+    should read as a data gap, not 'not applicable', since every node
+    that has EUtranFrequency MOs at all is in scope for this ceiling."""
+    if not log_text:
+        return [{'rule': '#96', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': 'No Pre log for this node - EUtranFrequency count unknown.'}]
+    counts = pe.extract_eutranfreq_counts(log_text)
+    if not counts:
+        return [{'rule': '#96', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': "hget EUtraNetwork=.,EUtranFrequency arfcnValueEUtranDl not captured for this node."}]
+    rows = []
+    for key, count in counts.items():
+        limit, label = _EUTRANFREQ_LIMITS[key]
+        over = count > limit
+        note = f'{label}: {count}/{limit} EUtranFrequency instances.'
+        if over:
+            note += ' Exceeds limit.'
+        rows.append({'rule': '#96', 'node': node_id, 'cell': label,
+                     'status': 'MISMATCH' if over else 'MATCH', 'note': note})
+    return rows
+
+
 def check_sector_id_4890(node_id, ciq_wb, e_name=None):
     """Blueprint #22 'Check for sectorID for 4890 Radio Type. "_s" should
     not be present'. CIQ-side check: any eUtran Parameters row whose RRU
