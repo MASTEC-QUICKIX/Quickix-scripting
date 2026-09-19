@@ -123,6 +123,7 @@ def build_lte_cell_rows(node_id, text):
     sector_carrier_by_cell = _extract_sector_carrier_numbers(text)
     dss_by_cell = pe.extract_dss_status(text)
     rilink_by_cell = pe.extract_cell_to_rilink_detail(text, fru_by_cell)
+    ailg_by_cell = pe.extract_ailg_ref(text)
 
     # Sharing radio: same RRU + same band serving DIFFERENT sector letters —
     # same definition as QUICKIX's radioBandMap (cross-sector share only; a
@@ -150,6 +151,14 @@ def build_lte_cell_rows(node_id, text):
                 sharing = ", ".join(sorted(shared))
         refs = branch_refs.get(cell, {})
         rilink = rilink_by_cell.get(cell, {})
+        # WCS is the only LTE band this profile check applies to (digit
+        # '3' sectors, e.g. '_3A_1' - band_label()'s own WCS marker).
+        # Non-WCS cells show '-' (not applicable), never a fabricated
+        # value; a WCS cell whose kget-all block has no ailgRef line at
+        # all is shown as 'NOT FOUND' rather than silently blank, so a
+        # real extraction gap isn't mistaken for 'not applicable'.
+        is_wcs = band == "WCS"
+        ailg_val = ailg_by_cell.get(cell) if is_wcs else None
         rows.append({
             "node": node_id, "cell": cell,
             "sector_carrier": sector_carrier_by_cell.get(cell, "-"),
@@ -159,6 +168,7 @@ def build_lte_cell_rows(node_id, text):
             "sef_rfbranches": refs.get("sef_branches") or "-",
             "pre_existing_dss": "DSS Active" if dss_by_cell.get(cell) else "No",
             "rilink_id": rilink.get("rilink_id") or "-", "rilink_port": rilink.get("rilink_port") or "-",
+            "air_if_load_profile": (ailg_val or "NOT FOUND") if is_wcs else "-",
         })
     return rows
 
