@@ -1288,7 +1288,8 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (95, "Pre checks", "ENM Pre-checks", "VoNR Check \nget . Epsfallbackoperation | get CXC4012592", "NR", None),
         (96, "Pre checks", "ENM Pre-checks", "hget EUtraNetwork=.,EUtranFrequency arfcnValueEUtranDl Limit for,\nGNBCUCPFunction=1 ---> 32\nENodeBFunction=1    ---> 24", "NR",
          lambda: _agg(results.get("eutranfreq_limit", []))),
-        (97, "Pre checks", "ENM Pre-checks", "Verfiy maxfreqcheck ", "NR", None),
+        (97, "Pre checks", "ENM Pre-checks", "Verfiy maxfreqcheck ", "NR",
+         lambda: _agg(results.get("maxfreqcheck", []))),
         (98, "Pre checks", "ENM Pre-checks", "RIPORT", "Radio", lambda: _pre_detected_status(node_logs_text, "ports")),
         # RADIO PORT is new and distinct from RIPORT in this template — no
         # confirmed signal separates them, so left manual rather than
