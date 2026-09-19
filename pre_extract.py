@@ -127,6 +127,36 @@ def extract_cell_range(text):
     return result
 
 
+def extract_ailg_ref(text):
+    """Cell -> AirIfLoadProfile id from its own 'ailgRef' attribute -
+    the DN's trailing 'AirIfLoadProfile=<id>' segment, a name or number
+    (e.g. '1', '4', 'PILOT_M', 'WCS_Slim'). Confirmed on real logs
+    (HXL00147.log, HXL04147.log): every AirIfLoadProfile MO's own
+    airIfLoadProfileId attribute is identical to this DN suffix, so
+    reading the suffix directly off the cell's ailgRef line is enough -
+    no separate lookup of the AirIfLoadProfile MO itself is needed.
+
+    Same 'kget all' full per-object attribute dump as extract_cell_range()
+    - one 'MO ... EUtranCellFDD=X' header followed by one attribute per
+    line. A cell present in this dict with value None means its kget-all
+    block was captured but has no ailgRef line at all - confirmed real
+    data, not every LTE cell carries one (only certain bands/sites do).
+    Best-effort: returns {} if kget all wasn't captured for this node."""
+    result = {}
+    if not text:
+        return result
+    headers = list(re.finditer(r'^MO\s+\S*(?<!External)EUtranCellFDD=([^\s,]+)\s*$', text, re.M))
+    for i, block_m in enumerate(headers):
+        cell = block_m.group(1)
+        if cell in result:
+            continue
+        window_end = headers[i + 1].start() if i + 1 < len(headers) else block_m.end() + 50000
+        window = text[block_m.end():window_end]
+        m = re.search(r'^ailgRef\s+\S*AirIfLoadProfile=(\S+)', window, re.M)
+        result[cell] = m.group(1) if m else None
+    return result
+
+
 def extract_cell_range_5g(text):
     """cellRange per 5G cell - same 'kget all' full per-object attribute
     dump as extract_cell_range(), keyed on 'MO ... NRCellDU=X' instead of
