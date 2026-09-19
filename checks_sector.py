@@ -2031,6 +2031,38 @@ def check_dss_pre_existing(node_id, log_text, ciq_wb):
              'note': f"Pre existing DSS on: {sides[0]} | {sides[1]}"}]
 
 
+def check_wcs_slim(node_id, log_text):
+    """Row 94's WCS Slim half: every WCS-band LTE cell ('_3[A-F]_'
+    sectors, band_label()'s own WCS marker) should point its ailgRef at
+    the AirIfLoadProfile=WCS_Slim profile. pe.extract_ailg_ref() reads
+    the profile id straight off each cell's own ailgRef line (confirmed
+    on real logs the DN suffix always equals that profile's own
+    airIfLoadProfileId, so no separate MO lookup is needed).
+
+    Three fixed verdicts, per confirmed decision:
+      no WCS cells at all         -> NA,       'No WCS sectors found.'
+      every WCS cell = WCS_Slim   -> MATCH,    'AirIfLoadProfile is WCS_Slim for WCS sectors.'
+      any WCS cell != WCS_Slim    -> MISMATCH, 'AirIfLoadProfile is non WCS_Slim for WCS sectors.'
+    A WCS cell with no ailgRef line at all counts as non-WCS_Slim (not
+    silently ignored) - confirmed real case, HXL00147's three WCS cells
+    all resolve to AirIfLoadProfile=4, not WCS_Slim."""
+    if not log_text:
+        return [{'rule': '#WCS', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': 'No Pre log for this node - WCS Slim state unknown.'}]
+    ailg = pe.extract_ailg_ref(log_text)
+    wcs_vals = {c: v for c, v in ailg.items() if band_label(c)[0] == 'WCS'}
+    if not wcs_vals:
+        return [{'rule': '#WCS', 'node': node_id, 'cell': '-', 'status': 'NA',
+                 'note': 'No WCS sectors found.'}]
+    all_slim = all(str(v or '').strip().upper() == 'WCS_SLIM' for v in wcs_vals.values())
+    if all_slim:
+        return [{'rule': '#WCS', 'node': node_id, 'cell': ', '.join(sorted(wcs_vals)), 'status': 'MATCH',
+                 'note': 'AirIfLoadProfile is WCS_Slim for WCS sectors.'}]
+    bad = sorted(c for c, v in wcs_vals.items() if str(v or '').strip().upper() != 'WCS_SLIM')
+    return [{'rule': '#WCS', 'node': node_id, 'cell': ', '.join(bad), 'status': 'MISMATCH',
+             'note': 'AirIfLoadProfile is non WCS_Slim for WCS sectors.'}]
+
+
 def check_sector_id_4890(node_id, ciq_wb, e_name=None):
     """Blueprint #22 'Check for sectorID for 4890 Radio Type. "_s" should
     not be present'. CIQ-side check: any eUtran Parameters row whose RRU
