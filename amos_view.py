@@ -111,6 +111,24 @@ def _parsed_cache(text):
     return _parse_log_cache[key]
 
 
+def _freq_check_html(entry):
+    """entry: pe.extract_eutranfreqcheck()'s per-cell {'full','detail'} dict,
+    or None (command not captured / no entry for this cell -> '-', not
+    coloured). 'full' (slots maxed out) renders red; room-available renders
+    green - per confirmed decision. Pulls just the short lead figure out of
+    the raw detail sentence ('Max(16)' or the additional-slots number)
+    rather than showing the whole sentence in the column."""
+    if entry is None:
+        return "-"
+    if entry["full"]:
+        m = re.match(r'(Max\(\d+\))', entry["detail"])
+        label = m.group(1) if m else "Max"
+        return f'<span style="color:#991b1b;font-weight:600;">{label} - slot full</span>'
+    m = re.match(r'(\d+)\s+Additional', entry["detail"])
+    n = m.group(1) if m else "?"
+    return f'<span style="color:#065f46;font-weight:600;">{n} additional</span>'
+
+
 def build_lte_cell_rows(node_id, text):
     """Node, Cell, Sector Carrier, RRUs, Radio type, Sharing Radio, TX, RX,
     RFBRANCHTXREF, RFBRANCHRXREF, SEF RFBRANCHES, Pre Existing DSS — matches
@@ -124,6 +142,7 @@ def build_lte_cell_rows(node_id, text):
     dss_by_cell = pe.extract_dss_status(text)
     rilink_by_cell = pe.extract_cell_to_rilink_detail(text, fru_by_cell)
     ailg_by_cell = pe.extract_ailg_ref(text)
+    freqcheck_by_cell = pe.extract_eutranfreqcheck(text)
 
     # Sharing radio: same RRU + same band serving DIFFERENT sector letters —
     # same definition as QUICKIX's radioBandMap (cross-sector share only; a
@@ -169,6 +188,7 @@ def build_lte_cell_rows(node_id, text):
             "pre_existing_dss": "DSS Active" if dss_by_cell.get(cell) else "No",
             "rilink_id": rilink.get("rilink_id") or "-", "rilink_port": rilink.get("rilink_port") or "-",
             "air_if_load_profile": (ailg_val or "NOT FOUND") if is_wcs else "-",
+            "eutranfreqcheck": _freq_check_html(freqcheck_by_cell.get(cell)),
         })
     return rows
 
