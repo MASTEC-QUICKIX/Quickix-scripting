@@ -60,7 +60,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
         'params_4g', 'rbb_tx_isdlonly_4g', 'rilink_vs_rbb_4g', 'electrical_tilt_type', 'params_5g', 'arfcn_bw_5g', 'ssb_5g',
         'pci_4g', 'pci_5g', 'radio_type', 'sector_swap', 'radio_sharing',
         'port_uniqueness', 'xmu_port_overlap', 'antenna', 'nbiot', 'nr_tac', 'tac', 'sef_fru',
-        'dss', 'sector_id_4890', 'rfbranch_per_aug', 'ptp_matrix', 'losses_vs_antenna',
+        'dss', 'wcs_slim', 'sector_id_4890', 'rfbranch_per_aug', 'ptp_matrix', 'losses_vs_antenna',
         'tilt', 'mmwave_rach', 'radio_port_conflict', 'carrier_progression',
     )}
     sa_note_nodes = []
@@ -121,6 +121,7 @@ def run(ciq_path, edp_path, rfds_path, node_logs_text, out_pdf):
         # function's docstring for why two of them were previously listed as
         # unavailable (both notes were wrong; the signals do exist).
         results['dss'] += cs.check_dss_pre_existing(node_id, log_text, ciq_wb)
+        results['wcs_slim'] += cs.check_wcs_slim(node_id, log_text)
         results['sector_id_4890'] += cs.check_sector_id_4890(node_id, ciq_wb, e_name)
         results['rfbranch_per_aug'] += cs.check_rfbranch_per_aug(node_id, log_text)
         results['losses_vs_antenna'] += cs.check_losses_vs_antenna_sectors(node_id, ciq_wb, e_name, g_name)
