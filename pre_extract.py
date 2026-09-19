@@ -192,6 +192,33 @@ def extract_eutranfreq_counts(text):
     return result
 
 
+def extract_eutranfreqcheck(text):
+    """Row 97's own command output, per cell: 'EutranFreqCheck' prints one
+    '$EutranFreqCheck[<cell>] = ...' line per LTE cell, in one of two
+    shapes:
+      - room available: '<N> Additional EutranFreqRelations can be added.'
+      - slot full:       'Max(<cap>) EutranFreqRelations reached.
+                          Additional Freqrelations cannot be added.
+                          <N> slot(s) needed as per the final config.'
+    (the second shape confirmed real from a live AMOS screenshot,
+    KYL03202_2A_1 - not yet seen in a full captured log, but the command
+    and its normal-case line are confirmed on two real logs, ECL00116.txt
+    and ECL07116R.txt).
+
+    Returns {cell: {'full': bool, 'detail': <raw text after '='>}} - 'full'
+    True means the cell's EutranFreqRelation slots are maxed out and an
+    unneeded one must be manually deleted before another can be added, per
+    confirmed decision. Best-effort: returns {} if this command wasn't
+    captured for this node."""
+    result = {}
+    if not text:
+        return result
+    for m in re.finditer(r'^\$EutranFreqCheck\[(\S+)\]\s*=\s*(.+?)\s*$', text, re.M):
+        cell, detail = m.group(1), m.group(2).strip()
+        result[cell] = {'full': detail.upper().startswith('MAX('), 'detail': detail}
+    return result
+
+
 def extract_cell_range_5g(text):
     """cellRange per 5G cell - same 'kget all' full per-object attribute
     dump as extract_cell_range(), keyed on 'MO ... NRCellDU=X' instead of
