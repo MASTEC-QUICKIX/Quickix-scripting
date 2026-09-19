@@ -2102,6 +2102,36 @@ def check_eutranfreq_limit(node_id, log_text):
     return rows
 
 
+def check_maxfreqcheck(node_id, log_text):
+    """Row 97 ('Verify maxfreqcheck'): flags any LTE cell whose
+    EutranFreqCheck slots are maxed out ('Max(N) EutranFreqRelations
+    reached...') - per confirmed decision, a maxed-out cell needs an
+    engineer to manually delete an unneeded existing frequency relation
+    to free a slot before the new one from this build can be added, so it
+    is a genuine MISMATCH, not just informational. A cell still showing
+    'N Additional EutranFreqRelations can be added.' has room and is a
+    MATCH.
+
+    SKIPPED (not NA) when EutranFreqCheck wasn't captured for this node -
+    every LTE node should run this command, so a missing capture is a
+    data gap, not a case where the rule doesn't apply."""
+    if not log_text:
+        return [{'rule': '#97', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': 'No Pre log for this node - EutranFreqCheck state unknown.'}]
+    data = pe.extract_eutranfreqcheck(log_text)
+    if not data:
+        return [{'rule': '#97', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': 'EutranFreqCheck not captured for this node.'}]
+    rows = []
+    for cell, v in sorted(data.items()):
+        if v['full']:
+            rows.append({'rule': '#97', 'node': node_id, 'cell': cell, 'status': 'MISMATCH',
+                         'note': f"{v['detail']} Manually delete an unneeded frequency relation to free a slot."})
+        else:
+            rows.append({'rule': '#97', 'node': node_id, 'cell': cell, 'status': 'MATCH', 'note': v['detail']})
+    return rows
+
+
 def check_sector_id_4890(node_id, ciq_wb, e_name=None):
     """Blueprint #22 'Check for sectorID for 4890 Radio Type. "_s" should
     not be present'. CIQ-side check: any eUtran Parameters row whose RRU
