@@ -1513,6 +1513,7 @@ with tab_audit:
                 ("rfbranch_tx_ref", "RFBRANCHTXREF"), ("rfbranch_rx_ref", "RFBRANCHRXREF"),
                 ("sef_rfbranches", "SEF RFBRANCHES"), ("pre_existing_dss", "Pre Existing DSS"),
                 ("rilink_id", "RiLink ID"), ("rilink_port", "RiLink Port"),
+                ("air_if_load_profile", "AirIfLoadProfile"),
             ]), unsafe_allow_html=True)
 
             section_title("5G NR Cells", badge=f"{len(nr_rows)} CELLS")
