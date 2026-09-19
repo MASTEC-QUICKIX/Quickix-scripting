@@ -1286,7 +1286,8 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (94, "Pre checks", "ENM Pre-checks", "DSS and WCS Slim checks\nessscpairid | esssclocalid | AirIfLoadProfile|ailgRef", "NR",
          lambda: _agg_row94(results.get("wcs_slim", []))),
         (95, "Pre checks", "ENM Pre-checks", "VoNR Check \nget . Epsfallbackoperation | get CXC4012592", "NR", None),
-        (96, "Pre checks", "ENM Pre-checks", "hget EUtraNetwork=.,EUtranFrequency arfcnValueEUtranDl Limit for,\nGNBCUCPFunction=1 ---> 32\nENodeBFunction=1    ---> 24", "NR", None),
+        (96, "Pre checks", "ENM Pre-checks", "hget EUtraNetwork=.,EUtranFrequency arfcnValueEUtranDl Limit for,\nGNBCUCPFunction=1 ---> 32\nENodeBFunction=1    ---> 24", "NR",
+         lambda: _agg(results.get("eutranfreq_limit", []))),
         (97, "Pre checks", "ENM Pre-checks", "Verfiy maxfreqcheck ", "NR", None),
         (98, "Pre checks", "ENM Pre-checks", "RIPORT", "Radio", lambda: _pre_detected_status(node_logs_text, "ports")),
         # RADIO PORT is new and distinct from RIPORT in this template — no
