@@ -157,6 +157,41 @@ def extract_ailg_ref(text):
     return result
 
 
+def extract_eutranfreq_counts(text):
+    """Row 96's own hget: 'hget EUtraNetwork=.,EUtranFrequency
+    arfcnValueEUtranDl' dumps ONE listing table per function type present
+    on the node (GNBCUCPFunction=1 for the 5G side, ENodeBFunction=1 for
+    the LTE side - a single-tech node prints only its own table, a dual
+    MMBB node prints both, one after the other), each ending its own
+    'Total: N MOs' line. Returns {'gnbcucp': N, 'enodeb': N}, a key
+    present only when that function's table was actually printed - a
+    missing key means that side doesn't apply to this node, not zero.
+
+    Confirmed on two real captures (ECL00116.txt - dual node, gnbcucp=20/
+    enodeb=22; ECL07116R.txt - LTE-only node, enodeb=21 only, no
+    GNBCUCPFunction table at all): counts the actual MO rows rather than
+    trusting the log's own printed 'Total:' line, so a truncated capture
+    still gets an honest (lower) count instead of silently repeating a
+    stale total. Best-effort: returns {} if this hget wasn't captured for
+    this node (confirmed real gap - not every Pre log runs it, e.g.
+    HXL00147.log/HXL04147.log have no such command at all)."""
+    result = {}
+    if not text:
+        return result
+    cmd_m = re.search(r'^\S+>\s*hget\s+EUtraNetwork=\.,EUtranFrequency\s+arfcnValueEUtranDl\b', text, re.M)
+    if not cmd_m:
+        return result
+    next_cmd = re.search(r'^\S+>\s', text[cmd_m.end():], re.M)
+    window = text[cmd_m.end(): cmd_m.end() + (next_cmd.start() if next_cmd else 20000)]
+    gnb = len(re.findall(r'^GNBCUCPFunction=\S+,EUtraNetwork=\S+,EUtranFrequency=\S+[ \t]', window, re.M))
+    enb = len(re.findall(r'^ENodeBFunction=\S+,EUtraNetwork=\S+,EUtranFrequency=\S+[ \t]', window, re.M))
+    if gnb:
+        result['gnbcucp'] = gnb
+    if enb:
+        result['enodeb'] = enb
+    return result
+
+
 def extract_cell_range_5g(text):
     """cellRange per 5G cell - same 'kget all' full per-object attribute
     dump as extract_cell_range(), keyed on 'MO ... NRCellDU=X' instead of
