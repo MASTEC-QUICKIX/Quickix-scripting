@@ -196,6 +196,32 @@ def _agg(results_list, note_fields=("node", "cell", "note")):
     return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log / no RFDS)."
 
 
+def _agg_row94(wcs_results):
+    """Row 94's WCS Slim half (DSS's own note already has its dedicated
+    row 52 — kept out of this row's comment on purpose, per confirmed
+    scope). check_wcs_slim() returns exactly one of three fixed
+    (status, note) shapes per node; this just picks the right verdict
+    across every node on the site, worst-result-wins (a MISMATCH on any
+    one node fails the whole row, same convention as every other _agg*
+    here) — and always emits one of the three exact strings requested,
+    never a generated summary:
+        any node MISMATCH        -> mismatch, 'AirIfLoadProfile is non WCS_Slim for WCS sectors.'
+        no MISMATCH, any MATCH   -> match,     'AirIfLoadProfile is WCS_Slim for WCS sectors.'
+        only NA (no WCS at all)  -> na,        'No WCS sectors found.'
+        nothing usable           -> unknown,   whatever SKIPPED note(s) explain why."""
+    if not wcs_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in wcs_results if r.get("status") not in (None, "SKIPPED")]
+    if any(r.get("status") == "MISMATCH" for r in real):
+        return "mismatch", "AirIfLoadProfile is non WCS_Slim for WCS sectors."
+    if any(r.get("status") == "MATCH" for r in real):
+        return "match", "AirIfLoadProfile is WCS_Slim for WCS sectors."
+    if any(r.get("status") == "NA" for r in real):
+        return "na", "No WCS sectors found."
+    skipped_notes = {r.get("note") for r in wcs_results if r.get("note")}
+    return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log)."
+
+
 def _group_bad_by_node_reason(bad, real, reason_of):
     """Shared core for the 'not found in RFDS' / RRU / Cell ID grouping:
     when 2+ cells on the SAME node fail for the SAME reason, produce one
@@ -1257,7 +1283,8 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         # "IP Validation Pre Vs EDP" and "Rehoming sites" (old rows 75-76)
         # were dropped from the V3 template — not carried over.
 
-        (94, "Pre checks", "ENM Pre-checks", "DSS and WCS Slim checks\nessscpairid | esssclocalid | AirIfLoadProfile|ailgRef", "NR", None),
+        (94, "Pre checks", "ENM Pre-checks", "DSS and WCS Slim checks\nessscpairid | esssclocalid | AirIfLoadProfile|ailgRef", "NR",
+         lambda: _agg_row94(results.get("wcs_slim", []))),
         (95, "Pre checks", "ENM Pre-checks", "VoNR Check \nget . Epsfallbackoperation | get CXC4012592", "NR", None),
         (96, "Pre checks", "ENM Pre-checks", "hget EUtraNetwork=.,EUtranFrequency arfcnValueEUtranDl Limit for,\nGNBCUCPFunction=1 ---> 32\nENodeBFunction=1    ---> 24", "NR", None),
         (97, "Pre checks", "ENM Pre-checks", "Verfiy maxfreqcheck ", "NR", None),
