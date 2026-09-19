@@ -279,21 +279,27 @@ def _row_cls(status_value):
     return ""
 
 
-def render_table(rows, columns=None, status_key="status", empty_msg="No data."):
+def render_table(rows, columns=None, status_key="status", empty_msg="No data.", html_cols=None):
     """rows: list[dict]. Bordered HTML table, each row's background/text
     colour driven by rows[i][status_key]. columns: optional [(key,label),
     ...] order; defaults to the first row's own key order. status_key=None
-    disables colouring (plain bordered table)."""
+    disables colouring (plain bordered table). html_cols: optional set of
+    column keys whose value is already-safe inline HTML (e.g. a coloured
+    <span>) built by the caller and should be emitted as-is instead of
+    HTML-escaped — every other column keeps the normal esc() treatment."""
     if not rows:
         return f'<div class="qkx-empty">{esc(empty_msg)}</div>'
     if columns is None:
         columns = [(k, k.replace("_", " ").title()) for k in rows[0].keys()]
+    html_cols = html_cols or set()
     head = "".join(f"<th>{esc(label)}</th>" for _, label in columns)
     body = []
     for r in rows:
         sv = str(r.get(status_key, "")) if status_key else ""
         color, bg = STATUS_COLORS.get(sv, DEFAULT_COLOR) if status_key else DEFAULT_COLOR
-        cells = "".join(f"<td>{esc(r.get(k, ''))}</td>" for k, _ in columns)
+        cells = "".join(
+            f"<td>{r.get(k, '') if k in html_cols else esc(r.get(k, ''))}</td>" for k, _ in columns
+        )
         body.append(f'<tr class="{_row_cls(sv)}" style="background:{bg};color:{color};">{cells}</tr>')
     # Zebra striping only on uncoloured tables: a `td` background paints over
     # the row's inline `tr` background, so applying it globally would wash out
@@ -1514,7 +1520,8 @@ with tab_audit:
                 ("sef_rfbranches", "SEF RFBRANCHES"), ("pre_existing_dss", "Pre Existing DSS"),
                 ("rilink_id", "RiLink ID"), ("rilink_port", "RiLink Port"),
                 ("air_if_load_profile", "AirIfLoadProfile"),
-            ]), unsafe_allow_html=True)
+                ("eutranfreqcheck", "EutranFreqCheck"),
+            ], html_cols={"eutranfreqcheck"}), unsafe_allow_html=True)
 
             section_title("5G NR Cells", badge=f"{len(nr_rows)} CELLS")
             st.markdown(render_table(nr_rows, status_key=None, columns=[
