@@ -888,6 +888,7 @@ def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name, e_name=None,
     if rfds_pages is None:
         return [{'rule': '#47', 'node': node_id, 'cell': None, 'status': 'SKIPPED', 'note': 'No RFDS provided.'}]
     import rfds_extract as rf
+    import antenna_resolve as ar
     antennas = rf.extract_rf_inventory_antennas(rfds_pages, rfds_bytes)
     results = []
     for row in _rows(ciq_wb, '5G Info'):
@@ -900,7 +901,15 @@ def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name, e_name=None,
         ciq_ant = str(row.get('Antenna Type', '')).strip()
         label, sector = band_label(cell)
         where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
-        match = ciq_ant == rfds_ant
+        # Plain string equality flagged real matches as mismatches whenever
+        # CIQ and RFDS formatted the same model with different spacing
+        # (confirmed real: CIQ "AIR6472 B77G B77M" vs RFDS
+        # "AIR6472B77G B77M" — same antenna, punctuation/whitespace only) —
+        # antenna_resolve's tiered comparison (already used by the RFDS
+        # Validation tab's own antenna column) is the same tolerance this
+        # check needs, so it's reused here instead of a second ad-hoc rule.
+        tier, _ = ar.resolve_antenna(ciq_ant, rfds_ant)
+        match = tier != 'NO MATCH'
         results.append({'rule': '#47', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
                          'status': 'MATCH' if match else 'MISMATCH',
                          'note': 'Match.' if match else f'{where}: CIQ Antenna Type={ciq_ant} vs RFDS={rfds_ant}.'})
@@ -914,7 +923,8 @@ def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name, e_name=None,
         ciq_ant = str(row.get('antenna model', '')).strip()
         label, sector = band_label(cell)
         where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
-        match = ciq_ant == rfds_ant
+        tier, _ = ar.resolve_antenna(ciq_ant, rfds_ant)
+        match = tier != 'NO MATCH'
         results.append({'rule': '#69', 'node': node_id, 'cell': cell, 'label': label, 'sector': sector,
                          'status': 'MATCH' if match else 'MISMATCH',
                          'note': 'Match.' if match else f'{where}: CIQ antenna model={ciq_ant} vs RFDS={rfds_ant}.'})
