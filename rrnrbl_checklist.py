@@ -1343,7 +1343,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         # RADIO PORT is new and distinct from RIPORT in this template — no
         # confirmed signal separates them, so left manual rather than
         # reusing the RIPORT check under a different name.
-        (99, "Pre checks", "ENM Pre-checks", "RADIO PORT", "Radio", None),
+        (99, "Pre checks", "ENM Pre-checks", "RADIO PORT", "Radio", lambda: _agg(results.get("radio_port", []))),
         (100, "Pre checks", "ENM Pre-checks", "RfBrach", "Radio", lambda: _pre_detected_status(node_logs_text, "rfbranch")),
 
         # Script Generation and Additional check are new sections in V3 —
