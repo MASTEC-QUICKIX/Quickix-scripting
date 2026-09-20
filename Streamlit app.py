@@ -975,7 +975,7 @@ state = st.session_state["state"]
 # The consolidated report shows only what needs ACTION: mismatches, broken
 # out to the individual PARAMETER that disagrees, rather than dumping every
 # checked row (passes included) as a wide table.
-_MM_NA = {"", "NA", "NOT AVAILABLE", "NOT FOUND", "NOT CHECKED", "-", "\u2014", "NONE"}
+_MM_NA = {"", "NA", "NOT AVAILABLE", "NOT FOUND", "NOT CHECKED", "NOT IN CIQ", "-", "\u2014", "NONE"}
 
 # Internal field name -> the label an engineer reads on the report.
 _MM_PARAM_LABEL = {
