@@ -869,7 +869,7 @@ def check_antenna_model_vs_rfds_4g(node_id, ciq_wb, rfds_pages, e_name):
     return results
 
 
-def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name, e_name=None):
+def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name, e_name=None, rfds_bytes=None):
     """Antenna model vs RFDS 'RF Inventory Details (Final)' antenna model
     — confirmed exact string match on real data, both sides (LTE and 5G):
     LTE's 'antenna model' column and RFDS both read 'NNH4-85B-R6' for the
@@ -888,7 +888,7 @@ def check_antenna_type_vs_rfds(node_id, ciq_wb, rfds_pages, g_name, e_name=None)
     if rfds_pages is None:
         return [{'rule': '#47', 'node': node_id, 'cell': None, 'status': 'SKIPPED', 'note': 'No RFDS provided.'}]
     import rfds_extract as rf
-    antennas = rf.extract_rf_inventory_antennas(rfds_pages)
+    antennas = rf.extract_rf_inventory_antennas(rfds_pages, rfds_bytes)
     results = []
     for row in _rows(ciq_wb, '5G Info'):
         cell = row.get('NRCellDU')
