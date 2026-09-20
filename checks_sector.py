@@ -2195,6 +2195,48 @@ def check_vonr_vs_ciq(node_id, log_text, ciq_wb):
     return results
 
 
+def check_radio_port(node_id, log_text, ciq_wb):
+    """Row 99 ('RADIO PORT'): ties the Pre Checks 'RiLink' display column
+    (Single Link/Double Link, from pe.extract_cell_to_rilink_detail's own
+    RiLink-row count) to each cell's own CIQ RBB Type link suffix
+    (pe.parse_rbb_link) - LTE cells via 'eUtran Parameters'.
+    EutranCellFDDId, 5G cells via '5G Info'.NRCellDU, both in one check.
+    (Row 78 already runs the LTE-only version of this same idea scoped to
+    rbb_tx_isdlonly_4g/e_name; this is the broader LTE+5G tie-in row 99
+    asked for, sharing the same underlying RiLink signal as the display
+    column so the checklist verdict and what the table shows never
+    disagree.)"""
+    if not log_text:
+        return [{'rule': '#99', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': 'No Pre log for this node - RiLink state unknown.'}]
+    fru_by_cell = pe.extract_cell_to_fru(log_text)
+    rilink = pe.extract_cell_to_rilink_detail(log_text, fru_by_cell)
+    if not rilink:
+        return [{'rule': '#99', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': 'rilink= not captured for this node.'}]
+    results = []
+    for sheet, cell_col, rbb_col in (('eUtran Parameters', 'EutranCellFDDId', 'RBB type'),
+                                      ('5G Info', 'NRCellDU', 'RBB Type')):
+        for row in _rows(ciq_wb, sheet):
+            cell = row.get(cell_col)
+            if not cell or cell not in rilink:
+                continue
+            pre_type = rilink[cell]['rilink_type']
+            pre_short = pre_type.replace(' Links', '').replace(' Link', '')
+            rbb_val = row.get(rbb_col)
+            ciq_short = pe.parse_rbb_link(rbb_val)
+            if ciq_short is None:
+                continue
+            match = pre_short == ciq_short
+            note = 'Confirmed.' if match else f"Pre RiLink={pre_type}, CIQ RBB Type={rbb_val} ({ciq_short})."
+            results.append({'rule': '#99', 'node': node_id, 'cell': cell,
+                             'status': 'MATCH' if match else 'MISMATCH', 'note': note})
+    if not results:
+        return [{'rule': '#99', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': 'No cells with both RiLink and RBB Type data on this node.'}]
+    return results
+
+
 def check_sector_id_4890(node_id, ciq_wb, e_name=None):
     """Blueprint #22 'Check for sectorID for 4890 Radio Type. "_s" should
     not be present'. CIQ-side check: any eUtran Parameters row whose RRU
