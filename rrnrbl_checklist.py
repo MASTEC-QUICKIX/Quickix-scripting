@@ -20,7 +20,7 @@ import re
 import openpyxl
 
 import ciq_edp_reader as cer
-from band_labels import SECTOR_ORDER, is_5g_cell
+from band_labels import SECTOR_ORDER, is_5g_cell, band_label
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Combined_NRBL-RR Checklist - V3.xlsx")
 
@@ -982,6 +982,110 @@ def _n2e_detection_status(ciq_wb, node_logs_text=None):
     return "info", "No Nokia_Info data, no Pre logs — NSB site."
 
 
+def _script_gen_ciq_nodes(ciq_wb):
+    """CIQ's own 'Node to be built as' column (Mixed_Mode tab) - the
+    site's Post/target node list. Same source run_validation.py's own
+    ciq_nodes uses."""
+    if not ciq_wb:
+        return set()
+    return {str(r.get("Node to be built as")).strip()
+            for r in cer.mixed_mode_rows(ciq_wb) if r.get("Node to be built as")}
+
+
+def _script_site_logs_status(ciq_wb, node_logs_text):
+    """Row 104 ('Input - Site Logs (Kget all)'): display-only, per
+    confirmed decision - stays 'manual' (still unticked), but the Remarks
+    column names which Pre-logged nodes are ALSO in the CIQ's Post/target
+    node list (Mixed_Mode's 'Node to be built as'), i.e. the nodes this
+    script-gen input actually needs kget-all for."""
+    if not node_logs_text:
+        return "manual", "No Pre kget logs uploaded."
+    ciq_nodes = _script_gen_ciq_nodes(ciq_wb)
+    pre_nodes = {n for n, t in node_logs_text.items() if t}
+    both = sorted(pre_nodes & ciq_nodes)
+    if both:
+        return "manual", f"Pre nodes also in Post: {', '.join(both)}."
+    return "manual", "No uploaded Pre node matches a Post (CIQ) node."
+
+
+def _script_deleted_logs_status(ciq_wb, node_logs_text):
+    """Row 105 ('Input - Deleted Site Logs (Kget all)'): display-only,
+    per confirmed decision. A 'deleted' node here means a Pre-logged node
+    that does NOT appear in the CIQ's Post/target node list at all - a
+    node presence check, distinct from run_validation.py's own
+    sow_analysis.classify_carriers() 'deleted_nodes' (which classifies
+    individual SECTOR moves/deletes for the SOW, not whole-node
+    presence) - kept separate rather than imported, since this row's
+    question is simpler: which Pre node IDs are absent from Post."""
+    if not node_logs_text:
+        return "manual", "No Pre kget logs uploaded."
+    ciq_nodes = _script_gen_ciq_nodes(ciq_wb)
+    pre_nodes = {n for n, t in node_logs_text.items() if t}
+    deleted = sorted(pre_nodes - ciq_nodes)
+    if deleted:
+        return "manual", f"Deleted node IDs: {', '.join(deleted)}."
+    return "manual", "No deleted nodes detected — every Pre node is also in Post (CIQ)."
+
+
+def _script_nokia_swap_status(ciq_wb):
+    """Row 106 ('Check box - Nokia swap'): display-only, per confirmed
+    decision - a plain binary read of Nokia_Info presence (unlike row
+    91's _n2e_detection_status, which also folds in Pre-log presence to
+    distinguish N2E from Legacy scope; this row only wants the simple
+    Nokia-swap yes/no per its own wording)."""
+    has_nokia = False
+    if ciq_wb and "Nokia_Info" in ciq_wb.sheetnames:
+        nokia_rows = cer.sheet_rows_as_dicts(ciq_wb["Nokia_Info"])
+        has_nokia = any(_norm(r.get("Nokia Cell Id")) for r in nokia_rows)
+    return "manual", ("Site is N2E." if has_nokia else "Site is not N2E.")
+
+
+def _script_dss_status(ciq_wb):
+    """Row 107 ('Check box - DSS'): display-only, per confirmed decision.
+    CIQ's own '5G Info'.'DSS' column - confirmed real shape: 'NO' for a
+    non-DSS cell, or the PAIRED LTE cell's own name for a DSS cell (DSS
+    shares spectrum between one NR carrier and one LTE carrier), not a
+    plain Yes/No flag. Reports which band(s) the DSS-flagged NR cells sit
+    on (row's own 'on: LTE/5G band' wording)."""
+    if not ciq_wb or "5G Info" not in ciq_wb.sheetnames:
+        return "manual", "No 5G Info sheet — DSS not present in CIQ."
+    bands = set()
+    for r in cer.sheet_rows_as_dicts(ciq_wb["5G Info"]):
+        dss_val = _norm(r.get("DSS"))
+        if dss_val and dss_val.upper() != "NO":
+            label, _sector = band_label(r.get("NRCellDU") or "")
+            bands.add(label or "unknown band")
+    if bands:
+        return "manual", f"DSS present in CIQ on: {', '.join(sorted(bands))}."
+    return "manual", "DSS not present in CIQ."
+
+
+def _script_hicap_status(ciq_wb):
+    """Row 108 ('Check box - Hi-Cap'): display-only, per confirmed
+    decision - same 'eUtran Parameters'.'High Capacity Site' signal row
+    73's _high_capacity_status already reads (Yes/True on ANY cell wins),
+    reworded to this row's own simpler 'HiCap is present' phrasing."""
+    if not ciq_wb or "eUtran Parameters" not in ciq_wb.sheetnames:
+        return "manual", "No eUtran Parameters sheet — HiCap not present in CIQ."
+    hc = any(_norm(r.get("High Capacity Site")).upper() in ("TRUE", "YES", "Y")
+             for r in cer.sheet_rows_as_dicts(ciq_wb["eUtran Parameters"]))
+    return "manual", ("HiCap is present." if hc else "HiCap not present in CIQ.")
+
+
+def _script_sa_conversion_status(ciq_wb):
+    """Row 109 ('Check box - SA Conversion'): display-only, per confirmed
+    decision - lists every Node Name present in the CIQ's own 'NR_SA' tab
+    (the SA-conversion declaration tab _nr_sa_tac_status already reads
+    for row 89's TAC comparison)."""
+    if not ciq_wb or "NR_SA" not in ciq_wb.sheetnames:
+        return "manual", "No SA Conversion (no NR_SA tab)."
+    nodes = sorted({_norm(r.get("Node Name")) for r in cer.sheet_rows_as_dicts(ciq_wb["NR_SA"])
+                    if _norm(r.get("Node Name"))})
+    if nodes:
+        return "manual", f"SA Conversion on: {', '.join(nodes)}."
+    return "manual", "No SA Conversion (NR_SA tab empty)."
+
+
 def _nr_sa_tac_status(ciq_wb):
     """NR_SA tab declares, per NODE, the exact nRTAC value expected if that
     node is SA-converted ('Node Name' + 'nrTAC' columns, confirmed real
@@ -1352,12 +1456,18 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         # for (they're about script-generation-time choices, not
         # CIQ/EDP/RFDS/Pre content this app validates).
         (103, "Script Generation", "QWEST Selections", "Required input - CIQ|EDP|Pre-Kgetall|\nInternal Parameters File (Pre-Mom) | SCG File |", "NR", None),
-        (104, "Script Generation", "QWEST Selections", "Input - Site Logs (Kget all)", "NR", None),
-        (105, "Script Generation", "QWEST Selections", "Input - Deleted Site Logs (Kget all)", "NR", None),
-        (106, "Script Generation", "QWEST Selections", "Check box - Nokia swap", "NR", None),
-        (107, "Script Generation", "QWEST Selections", "Check box - DSS", "NR", None),
-        (108, "Script Generation", "QWEST Selections", "Check box - Hi-Cap", "NR", None),
-        (109, "Script Generation", "QWEST Selections", "Check box - SA Conversion", "NR", None),
+        (104, "Script Generation", "QWEST Selections", "Input - Site Logs (Kget all)", "NR",
+         lambda: _script_site_logs_status(ciq_wb, node_logs_text)),
+        (105, "Script Generation", "QWEST Selections", "Input - Deleted Site Logs (Kget all)", "NR",
+         lambda: _script_deleted_logs_status(ciq_wb, node_logs_text)),
+        (106, "Script Generation", "QWEST Selections", "Check box - Nokia swap", "NR",
+         lambda: _script_nokia_swap_status(ciq_wb)),
+        (107, "Script Generation", "QWEST Selections", "Check box - DSS", "NR",
+         lambda: _script_dss_status(ciq_wb)),
+        (108, "Script Generation", "QWEST Selections", "Check box - Hi-Cap", "NR",
+         lambda: _script_hicap_status(ciq_wb)),
+        (109, "Script Generation", "QWEST Selections", "Check box - SA Conversion", "NR",
+         lambda: _script_sa_conversion_status(ciq_wb)),
 
         (112, "Additional check", "Additional Manual checks", "Need to check whether radios are shared between two sectors.", "Radio", lambda: _pre_detected_status(node_logs_text, "sharing")),
         (113, "Additional check", "Additional Manual checks", "Please validate the sector Id and Riport. It should be unique", "Radio", lambda: _agg_port_uniqueness(results.get("port_uniqueness", []))),
