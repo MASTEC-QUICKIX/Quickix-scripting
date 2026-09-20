@@ -18,6 +18,8 @@ import os
 import re
 
 import openpyxl
+from openpyxl.styles import PatternFill, Font
+from copy import copy
 
 import ciq_edp_reader as cer
 from band_labels import SECTOR_ORDER, is_5g_cell, band_label
@@ -72,6 +74,18 @@ STATUS_META = {
     "unknown": ("NO DATA", False),
     "na": ("N/A", False),
     "info": ("INFO", False),
+}
+
+# Same status -> color mapping as the UI's STATUS_COLORS (Streamlit app.py) —
+# (text hex, background hex) — kept in sync by hand since the two files
+# don't share a module. Excel fills want bare 6-digit hex, no '#'.
+STATUS_XLSX_COLORS = {
+    "match": ("065F46", "D1FAE5"),
+    "mismatch": ("991B1B", "FEE2E2"),
+    "manual": ("92400E", "FEF3C7"),
+    "unknown": ("64748B", "F1F5F9"),
+    "na": ("64748B", "F1F5F9"),
+    "info": ("1D4ED8", "DBEAFE"),
 }
 
 
@@ -1656,6 +1670,24 @@ def fill_checklist_xlsx(checklist, site_id_fa, engineer_name=None, sow=None, dat
         else:
             comment = entry["detail"] or ""
             ws[f"E{r}"] = f"[{label}] {comment}" if label else comment
+
+        # Color-code the row like the UI's checklist grid (STATUS_COLORS in
+        # Streamlit app.py) — Check/Scope/Remarks only. Column C (Tick) is
+        # deliberately left untouched: it carries the template's native
+        # Excel checkbox (see _restore_native_checkboxes below) via a style
+        # extension openpyxl doesn't understand, and changing that cell's
+        # own style risks giving it a new xf index that the checkbox
+        # restore step (which targets the template's original index) would
+        # then miss.
+        text_hex, bg_hex = STATUS_XLSX_COLORS.get(entry["status"], (None, None))
+        if bg_hex:
+            fill = PatternFill(start_color=bg_hex, end_color=bg_hex, fill_type="solid")
+            for col in ("B", "D", "E"):
+                cell = ws[f"{col}{r}"]
+                cell.fill = fill
+                f = copy(cell.font)
+                f.color = text_hex
+                cell.font = f
 
     buf = io.BytesIO()
     wb.save(buf)
