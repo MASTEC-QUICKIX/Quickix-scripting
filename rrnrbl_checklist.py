@@ -1004,7 +1004,7 @@ def _script_site_logs_status(ciq_wb, node_logs_text):
     pre_nodes = {n for n, t in node_logs_text.items() if t}
     both = sorted(pre_nodes & ciq_nodes)
     if both:
-        return "manual", f"Pre nodes also in Post: {', '.join(both)}."
+        return "manual", f"Pre nodes : {', '.join(both)}."
     return "manual", "No uploaded Pre node matches a Post (CIQ) node."
 
 
