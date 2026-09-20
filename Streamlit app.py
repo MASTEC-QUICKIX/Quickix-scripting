@@ -485,29 +485,44 @@ def build_rfds_grouped_rows(results, ciq_wb, rfds_pages, rfds_bytes=None):
         else:
             ant_status = "MISMATCH"
 
-        is_air = str(an.get("rfds") or "").upper().startswith("AIR") or str(an.get("ciq") or "").upper().startswith("AIR")
-        ant_info_found = _sheet_mentions_cell(ciq_wb, "Antenna Information", cell)
-        loss_found = _sheet_mentions_cell(ciq_wb, "Losses and Delays", cell)
-        loss_mandatory = not is_air
-        loss_status = "MATCH" if loss_found else ("MANUAL" if not loss_mandatory else "MISMATCH")
-        loss_display = "FOUND" if loss_found else ("N/A" if not loss_mandatory else "NOT FOUND")
-
-        warnings = []
+        # Once the cell itself doesn't exist on one side (MISMATCH here means
+        # "not found in CIQ" / "not found in RFDS", not a real field mismatch),
+        # every downstream sub-check (RRU, Antenna, Cell ID, Antenna Info,
+        # Losses & Delays) is meaningless for a cell that isn't there — skip
+        # them all and report only "Cell mismatch" (per confirmed design rule).
         if cell_status == "MISMATCH":
-            warnings.append("Cell mismatch")
-        if rru_status == "MISMATCH":
-            warnings.append("RRU mismatch")
-        if ant_status == "MISMATCH":
-            warnings.append("Antenna mismatch")
-        if cellid_status == "MISMATCH":
-            warnings.append("Cell ID mismatch (CIQ vs RFDS)")
-        if not ant_info_found:
-            warnings.append("Antenna Info missing")
-        if loss_mandatory and not loss_found:
-            warnings.append("Losses & Delays missing")
+            rru_status = "SKIPPED"
+            ant_status = "SKIPPED"
+            cellid_status = "SKIPPED"
+            ant_info_found = None
+            loss_found = None
+            loss_mandatory = False
+            loss_status = "SKIPPED"
+            loss_display = "N/A"
+            warnings = ["Cell mismatch"]
+            fail = True
+        else:
+            is_air = str(an.get("rfds") or "").upper().startswith("AIR") or str(an.get("ciq") or "").upper().startswith("AIR")
+            ant_info_found = _sheet_mentions_cell(ciq_wb, "Antenna Information", cell)
+            loss_found = _sheet_mentions_cell(ciq_wb, "Losses and Delays", cell)
+            loss_mandatory = not is_air
+            loss_status = "MATCH" if loss_found else ("MANUAL" if not loss_mandatory else "MISMATCH")
+            loss_display = "FOUND" if loss_found else ("N/A" if not loss_mandatory else "NOT FOUND")
 
-        fail = any(s == "MISMATCH" for s in (cell_status, rru_status, ant_status, cellid_status)) \
-            or not ant_info_found or (loss_mandatory and not loss_found)
+            warnings = []
+            if rru_status == "MISMATCH":
+                warnings.append("RRU mismatch")
+            if ant_status == "MISMATCH":
+                warnings.append("Antenna mismatch")
+            if cellid_status == "MISMATCH":
+                warnings.append("Cell ID mismatch (CIQ vs RFDS)")
+            if not ant_info_found:
+                warnings.append("Antenna Info missing")
+            if loss_mandatory and not loss_found:
+                warnings.append("Losses & Delays missing")
+
+            fail = any(s == "MISMATCH" for s in (rru_status, ant_status, cellid_status)) \
+                or not ant_info_found or (loss_mandatory and not loss_found)
 
         rows.append({
             "node": cv.get("node") or rt.get("node") or ci.get("node") or "",
@@ -515,7 +530,8 @@ def build_rfds_grouped_rows(results, ciq_wb, rfds_pages, rfds_bytes=None):
             "rru_rfds": rt.get("rfds", "—"), "rru_ciq": rt.get("ciq", "—"), "rru_status": rru_status,
             "ant_rfds": an.get("rfds", "—"), "ant_ciq": an.get("ciq", "—"), "ant_status": ant_status,
             "cellid_rfds": ci.get("rfds_rcn", "—"), "cellid_ciq": ci.get("ciq", "—"), "cellid_status": cellid_status,
-            "ant_info": "FOUND" if ant_info_found else "NOT FOUND", "ant_info_status": "MATCH" if ant_info_found else "MISMATCH",
+            "ant_info": "N/A" if ant_info_found is None else ("FOUND" if ant_info_found else "NOT FOUND"),
+            "ant_info_status": "SKIPPED" if ant_info_found is None else ("MATCH" if ant_info_found else "MISMATCH"),
             "losses_delays": loss_display, "losses_status": loss_status,
             "warning": "; ".join(warnings) if warnings else "—",
             "overall": "FAIL" if fail else "PASS",
