@@ -12,6 +12,7 @@ import re
 
 import pre_extract as pe
 import ciq_edp_reader as cer
+import pre_cell_inventory as pci
 from band_labels import band_label, is_5g_cell, is_mmwave_cell, is_cband_cell, is_dod_cell
 
 
@@ -2130,6 +2131,68 @@ def check_maxfreqcheck(node_id, log_text):
         else:
             rows.append({'rule': '#97', 'node': node_id, 'cell': cell, 'status': 'MATCH', 'note': v['detail']})
     return rows
+
+
+def check_vonr_prelog(node_id, log_text):
+    """Row 95: the Pre log's own VoNR verdict (epsFallbackOperation +
+    CXC4012592, via pe.extract_vonr_status) - reported on its own, with no
+    CIQ comparison (row 55 is the actual cross-check against CIQ). INFO
+    (not match/mismatch) since there's nothing to compare on this row
+    alone - it's a report of what the Pre log says, not a pass/fail."""
+    if not log_text:
+        return [{'rule': '#95', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': 'No Pre log for this node - VoNR state unknown.'}]
+    v = pe.extract_vonr_status(log_text)
+    if v is True:
+        return [{'rule': '#95', 'node': node_id, 'cell': '-', 'status': 'INFO',
+                 'note': 'VoNR Active (epsFallbackOperation=ACTIVE, CXC4012592=ACTIVATED).'}]
+    if v is False:
+        return [{'rule': '#95', 'node': node_id, 'cell': '-', 'status': 'INFO',
+                 'note': 'VoNR Not Active (epsFallbackOperation=FORCED, CXC4012592=DEACTIVATED).'}]
+    return [{'rule': '#95', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+             'note': 'epsFallbackOperation/CXC4012592 state not recognized in Pre log - VoNR could not be determined.'}]
+
+
+def check_vonr_vs_ciq(node_id, log_text, ciq_wb):
+    """Row 55: CIQ's 5G Info 'VoNR' column vs the Pre log's own verdict
+    (pe.extract_vonr_status) - per confirmed decision, SA cells only
+    ('VoNR column is only applicable when the cell is SA'; NSA sites
+    cannot be VoNR at all). NSA cells are skipped outright, not flagged,
+    even when CIQ's own column shows something other than 'N/A' there
+    (confirmed real: HXL00147's NSA cells show 'No', not 'N/A' - a CIQ
+    data-quality question outside this check's scope).
+
+    epsFallbackOperation/CXC4012592 are node-wide (not per-cell), so
+    pre_vonr is derived once per node and compared against every SA
+    cell's own CIQ VoNR value on that node - 'if Pre says Active, CIQ
+    must say Yes' (and the mirror for Not Active), per confirmed rule."""
+    if not log_text:
+        return [{'rule': '#55', 'node': node_id, 'cell': '-', 'status': 'SKIPPED',
+                 'note': 'No Pre log for this node - VoNR state unknown.'}]
+    pre_cells = set(pci.extract_pre_cells_for_node(log_text))
+    pre_vonr = pe.extract_vonr_status(log_text)
+    results = []
+    for row in _rows(ciq_wb, '5G Info'):
+        cell = row.get('NRCellDU')
+        if not cell or cell not in pre_cells:
+            continue
+        if str(row.get('NSA/SA', '')).strip().upper() != 'SA':
+            continue
+        ciq_vonr = str(row.get('VoNR', '') or '').strip()
+        if pre_vonr is None:
+            results.append({'rule': '#55', 'node': node_id, 'cell': cell, 'status': 'SKIPPED',
+                             'note': 'epsFallbackOperation/CXC4012592 state not recognized in Pre log - VoNR could not be verified.'})
+            continue
+        expected = 'Yes' if pre_vonr else 'No'
+        if ciq_vonr.upper() == expected.upper():
+            results.append({'rule': '#55', 'node': node_id, 'cell': cell, 'status': 'MATCH',
+                             'note': f'Pre and CIQ both {expected}.'})
+        else:
+            results.append({'rule': '#55', 'node': node_id, 'cell': cell, 'status': 'MISMATCH',
+                             'note': f"Pre log VoNR {expected}, CIQ VoNR {ciq_vonr or 'blank'}."})
+    if not results:
+        return [{'rule': '#55', 'node': node_id, 'cell': '-', 'status': 'NA', 'note': 'No SA cells on this node.'}]
+    return results
 
 
 def check_sector_id_4890(node_id, ciq_wb, e_name=None):
