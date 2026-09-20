@@ -750,7 +750,17 @@ def render_rrnrbl_checklist(rows):
         ov = overrides.get(r["row"])
         if ov is not None and ov.get("comment"):
             return ov["comment"]
-        return "" if r["status"] == "manual" else (r.get("detail") or "")
+        detail = r.get("detail") or ""
+        # A manual row's detail is blanked ONLY when it's the generic
+        # placeholder from a genuinely-unautomated item (check=None in
+        # build_checklist) — some rows (e.g. Script Generation 104-109)
+        # are deliberately kept manual (still unticked, still the pencil
+        # icon) while their check() computes a REAL informational comment
+        # to show here; that real text must not be swallowed by the same
+        # blanking rule that hides the generic placeholder.
+        if r["status"] == "manual" and detail == "No automated check exists for this item.":
+            return ""
+        return detail
 
     def _tint_row(styler_row, cat_df):
         # styler_row is the visible-column row Styler passes in for THIS
