@@ -166,7 +166,17 @@ def extract_cell_details(pages):
         is_hyphen_lead = bool(re.match(r'^-\d', stripped))
         is_comma_lead = bool(re.match(r'^,[A-Za-z]', stripped))
         is_paren_lead = bool(re.match(r'^\)-\d', stripped))    # A-2(D\n)-3,A-2(D)-4 (wrap inside '(D)')
-        is_continuation = bool(joined_lines) and not _ROW_TERMINATED_RE.search(joined_lines[-1]) and (
+        # A digit/hyphen/comma/paren-lead fragment only continues a row
+        # that is actually still being built (its own line starts with a
+        # cell token). Without this guard, a floating one-off fragment
+        # like the RRH head-continuation 'B25/B66' (itself not row-
+        # terminated) silently swallowed the NEXT cell's unrelated RRH
+        # tail fragment ('8843 B2/B66A | RRUS-32 B2 | 4890', digit-lead),
+        # corrupting both HXL04147_9A_1's and HXL04147_9B_1's rrh values
+        # with duplicated/misattributed text (confirmed real on
+        # RFDS14808/HXL00147).
+        prev_is_row = bool(joined_lines) and _CELL_TOKEN_RE.match(joined_lines[-1].lstrip().split(' ', 1)[0])
+        is_continuation = prev_is_row and not _ROW_TERMINATED_RE.search(joined_lines[-1]) and (
             is_hyphen_lead or                       # -11,A-1-12
             is_digit_lead or                        # 11,B-1-12  OR  '23 64921...' (ambiguous, resolved below)
             is_comma_lead or                        # ,B-1-4
@@ -213,6 +223,35 @@ def extract_cell_details(pages):
             'rrh': _extract_rrh(m.group('rest').strip()),
             'status': m.group('status'),
         }
+
+    # Repair a third confirmed wrap shape (RFDS14808/HXL00147 site, cells
+    # HXL04147_9A_1/9B_1/9C_1): unlike the two wrap shapes already handled
+    # above (glued onto the start or end of a neighboring row's own line),
+    # here the RRH is wrapped clean OUT of the row's own line - its tail
+    # sits on its own line BEFORE the row ('8843 B2/B66A | RRUS-32 B2 |
+    # 4890') and its head-continuation sits on its own separate line AFTER
+    # the row ('B25/B66'), neither one glued to any row's line at all. The
+    # row's own line starts directly with its Sector-Position value instead
+    # ('A-1-9,A-4(D)-10 1900 8 ... EXISTING') - confirmed real: without
+    # this, 'rrh' silently became the Sector-Position string itself
+    # (e.g. 'A-1-9,A-4(D)-10'), which check_radio_type then compared
+    # against CIQ's real RRU type and always failed as a false MISMATCH.
+    _SECPOS_LEAD_RE = re.compile(r'^[A-Z]-\d+-\d+')
+    _ROW_END_RE = re.compile(r'(NEW|EXISTING|UPDATE|AF MIGRATED)\s*$')
+    for i, line in enumerate(joined_lines):
+        stripped = line.lstrip()
+        first_tok = stripped.split(' ', 1)[0] if stripped else ''
+        if not _CELL_TOKEN_RE.match(first_tok):
+            continue
+        entry = result.get(first_tok)
+        if not entry or not _SECPOS_LEAD_RE.match(entry['rrh']):
+            continue
+        tail = joined_lines[i - 1].strip() if i > 0 else ''
+        head = joined_lines[i + 1].strip() if i + 1 < len(joined_lines) else ''
+        tail_is_orphan = bool(tail) and not _CELL_TOKEN_RE.match(tail.split(' ', 1)[0]) and not _ROW_END_RE.search(tail)
+        head_is_continuation = bool(head) and _RRH_BAND_SUFFIX_RE.match(head) and not _CELL_TOKEN_RE.match(head.split(' ', 1)[0])
+        if tail_is_orphan or head_is_continuation:
+            entry['rrh'] = ' '.join(p for p in (tail, head) if p)
     return result
 
 
