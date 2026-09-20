@@ -53,28 +53,41 @@ _EUTRAN_CELL_RE = re.compile(
 
 
 def extract_vonr_status(text):
-    """VoNR active on this node: 'epsFallbackOperation' = 3 on ANY
-    EUtranFreqRelation (or similar per-relation MO - it repeats many times
-    per node, one instance is enough) AND the CXC4012592 feature's own
-    'featureState' = 1 (ACTIVATED). Confirmed real block shape (HXL04147.log):
-    'epsFallbackOperation   2 (FORCED)' / '5 (FORCED_MEAS_RWR)' per relation
-    (never 3 on that non-VoNR site - correctly reads inactive), and
-    'MO ...FeatureState=CXC4012592' followed by 'featureState  0 (DEACTIVATED)'
-    (also correctly inactive there).
+    """VoNR verdict from the Pre log alone, per confirmed decision:
+      Yes (True):  epsFallbackOperation = 3 or ACTIVE  AND  CXC4012592 featureState = ACTIVATED
+      No (False):  epsFallbackOperation = 2 or FORCED  AND  CXC4012592 featureState = DEACTIVATED
+      Anything else (the two signals disagree, or epsFallbackOperation is
+      some other confirmed-real code like '5 (FORCED_MEAS_RWR)' that the
+      spec doesn't cover) -> None: can't be classified, not a guess.
 
-    Deliberately anchored to 'epsFallbackOperation\\s+' (not just the
-    substring) so this never matches the DIFFERENT field
+    epsFallbackOperation repeats once per EUtranFreqRelation-like MO (many
+    instances per node) - one representative instance is enough, per
+    confirmed decision. Deliberately anchored to 'epsFallbackOperation\\s+'
+    (not just the substring) so this never matches the DIFFERENT field
     'epsFallbackOperationEm' - that field has no whitespace before its
-    'Em' suffix, so it can't satisfy '\\s+' right after 'Operation' and is
-    never confused with the real field here."""
+    'Em' suffix, so it can't satisfy '\\s+' right after 'Operation'.
+
+    CXC4012592 ('NR Robust Header Compression for Voice') block shape
+    confirmed real (HXL04147.log): a 'MO ...FeatureState=CXC4012592'
+    header followed eventually by its own 'featureState <N> (<WORD>)'
+    line - confirmed both spellings there ('1 (ACTIVATED)' on a sibling
+    feature CXC4012591, '0 (DEACTIVATED)' on CXC4012592 itself)."""
     if not text:
+        return None
+    m_eps = re.search(r'^epsFallbackOperation\s+(\d+)\s*\(([A-Z_]+)\)', text, re.M)
+    if not m_eps:
+        return None
+    eps_num, eps_word = m_eps.group(1), m_eps.group(2)
+    m_cxc = re.search(r'^MO\s+\S*FeatureState=CXC4012592\s*$\r?\n=+\r?\n'
+                       r'(?:^(?!MO\s).*$\r?\n)*?^featureState\s+\d+\s*\(([A-Z]+)\)', text, re.M)
+    if not m_cxc:
+        return None
+    cxc_word = m_cxc.group(1)
+    if (eps_num == '3' or eps_word == 'ACTIVE') and cxc_word == 'ACTIVATED':
+        return True
+    if (eps_num == '2' or eps_word == 'FORCED') and cxc_word == 'DEACTIVATED':
         return False
-    epsfb_active = bool(re.search(r'^epsFallbackOperation\s+3\b', text, re.M))
-    if not epsfb_active:
-        return False
-    m = re.search(r'^MO\s+\S*FeatureState=CXC4012592\s*$\r?\n=+\r?\n'
-                  r'(?:^(?!MO\s).*$\r?\n)*?^featureState\s+(\d+)', text, re.M)
-    return bool(m and m.group(1) == '1')
+    return None
 
 
 def extract_ul_channel_bandwidth(text):
