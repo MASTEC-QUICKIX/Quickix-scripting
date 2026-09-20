@@ -187,6 +187,7 @@ def build_lte_cell_rows(node_id, text):
             "sef_rfbranches": refs.get("sef_branches") or "-",
             "pre_existing_dss": "DSS Active" if dss_by_cell.get(cell) else "No",
             "rilink_id": rilink.get("rilink_id") or "-", "rilink_port": rilink.get("rilink_port") or "-",
+            "rilink_type": rilink.get("rilink_type") or "-",
             "air_if_load_profile": (ailg_val or "NOT FOUND") if is_wcs else "-",
             "eutranfreqcheck": _freq_check_html(freqcheck_by_cell.get(cell)),
         })
@@ -241,6 +242,7 @@ def build_nr_cell_rows(node_id, text):
             "tx": cfg["tx"] if cfg else "-", "rx": cfg["rx"] if cfg else "-",
             "sef_rfbranches": refs.get("sef_branches") or "-",
             "rilink_id": rilink.get("rilink_id") or "-", "rilink_port": rilink.get("rilink_port") or "-",
+            "rilink_type": rilink.get("rilink_type") or "-",
         })
     return rows
 
