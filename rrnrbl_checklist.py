@@ -222,6 +222,54 @@ def _agg_row94(wcs_results):
     return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log)."
 
 
+def _agg_vonr_prelog(vonr_prelog_results):
+    """Row 95: reports the Pre log's own VoNR verdict - not a pass/fail,
+    just what the log says (row 55 is the actual CIQ cross-check).
+    'info' when at least one node produced a clean Active/Not Active
+    read; 'unknown' only when every node was skipped (no Pre log, or the
+    epsFallbackOperation/CXC4012592 combination didn't match either
+    defined case)."""
+    if not vonr_prelog_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in vonr_prelog_results if r.get("status") not in (None, "SKIPPED")]
+    if not real:
+        skipped_notes = {r.get("note") for r in vonr_prelog_results if r.get("note")}
+        return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log)."
+    parts = []
+    for r in real[:6]:
+        bits = [str(r.get(f)) for f in ("node", "note") if r.get(f)]
+        parts.append(": ".join(bits) if bits else str(r))
+    more = f" (+{len(real)-6} more)" if len(real) > 6 else ""
+    return "info", "; ".join(parts) + more
+
+
+def _agg_row55(vonr_ciq_results):
+    """Row 55: CIQ 'VoNR' column vs Pre log verdict, SA cells only.
+    Worst-result-wins across nodes, same convention as every other _agg*
+    here: any MISMATCH fails the whole row; else any MATCH passes it;
+    else (every node had zero SA cells) the row is 'na', not a pass -
+    VoNR simply doesn't apply on this site."""
+    if not vonr_ciq_results:
+        return "unknown", "No data (check did not run for this site)."
+    real = [r for r in vonr_ciq_results if r.get("status") not in (None, "SKIPPED")]
+    bad = [r for r in real if r.get("status") == "MISMATCH"]
+    if bad:
+        parts = []
+        for r in bad[:6]:
+            bits = [str(r.get(f)) for f in ("node", "cell", "note") if r.get(f)]
+            parts.append(": ".join(bits) if bits else str(r))
+        more = f" (+{len(bad)-6} more)" if len(bad) > 6 else ""
+        return "mismatch", "; ".join(parts) + more
+    matched = [r for r in real if r.get("status") == "MATCH"]
+    if matched:
+        return "match", f"{len(matched)} SA cell(s) checked, CIQ VoNR matches Pre log."
+    na = [r for r in real if r.get("status") == "NA"]
+    if na:
+        return "na", "No SA cells on this node - VoNR not applicable."
+    skipped_notes = {r.get("note") for r in vonr_ciq_results if r.get("note")}
+    return "unknown", "; ".join(sorted(skipped_notes)) or "Skipped for every node (no Pre log)."
+
+
 def _group_bad_by_node_reason(bad, real, reason_of):
     """Shared core for the 'not found in RFDS' / RRU / Cell ID grouping:
     when 2+ cells on the SAME node fail for the SAME reason, produce one
@@ -1233,7 +1281,7 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
         (52, "CIQ tabs checks", "5g info", "DSS check", "NR/Radio", lambda: _agg(results.get("dss", []))),
         (53, "CIQ tabs checks", "5g info", "ssbFrequency /ssbOffset/ ssbDuration ", "NR/Radio", lambda: _agg_ssb_5g(results.get("ssb_5g", []))),
         (54, "CIQ tabs checks", "5g info", "NSA/SA", "NR/Radio", lambda: _nsa_sa_status(results.get("nr_tac", []))),
-        (55, "CIQ tabs checks", "5g info", "VoNR", "NR/Radio", None),
+        (55, "CIQ tabs checks", "5g info", "VoNR", "NR/Radio", lambda: _agg_row55(results.get("vonr_vs_ciq", []))),
         (56, "CIQ tabs checks", "5g info", "Make sure  BBU Type should match with RFDS and CIQ - BBU Type", "NR/Radio", lambda: _agg(board_type)),
         (57, "CIQ tabs checks", "5g info", "NRCellDU/NRCellCU/cellLocalId/RRU Type/ BeamDirection (Azimuth) /Antenna Type /Electrical Tilt must same as RFDS ", "Radio",
          lambda: _agg_row47(results.get("cells_vs_rfds", []), results.get("cell_id_vs_rfds_rcn", []), results.get("radio_type", []),
@@ -1285,7 +1333,8 @@ def build_checklist(results, site_details, ciq_wb, edp_rows, node_ids, rfds_page
 
         (94, "Pre checks", "ENM Pre-checks", "DSS and WCS Slim checks\nessscpairid | esssclocalid | AirIfLoadProfile|ailgRef", "NR",
          lambda: _agg_row94(results.get("wcs_slim", []))),
-        (95, "Pre checks", "ENM Pre-checks", "VoNR Check \nget . Epsfallbackoperation | get CXC4012592", "NR", None),
+        (95, "Pre checks", "ENM Pre-checks", "VoNR Check \nget . Epsfallbackoperation | get CXC4012592", "NR",
+         lambda: _agg_vonr_prelog(results.get("vonr_prelog", []))),
         (96, "Pre checks", "ENM Pre-checks", "hget EUtraNetwork=.,EUtranFrequency arfcnValueEUtranDl Limit for,\nGNBCUCPFunction=1 ---> 32\nENodeBFunction=1    ---> 24", "NR",
          lambda: _agg(results.get("eutranfreq_limit", []))),
         (97, "Pre checks", "ENM Pre-checks", "Verfiy maxfreqcheck ", "NR",
