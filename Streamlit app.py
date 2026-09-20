@@ -1406,8 +1406,9 @@ with top_r:
             f"USID: `{site_details.get('usid') or '—'}`", f"Nodes: `{', '.join(checked_nodes) or '—'}`"]
     st.caption(" &nbsp;·&nbsp; ".join(bits), unsafe_allow_html=True)
 
-tab_rfds, tab_audit, tab_edp, tab_consolidated = st.tabs(
-    ["RFDS Validation", "Audit", "EDP Validator", "Consolidated Report"]
+tab_rfds, tab_pre, tab_ciq, tab_auditpvc, tab_crdesc, tab_edp, tab_consolidated = st.tabs(
+    ["RFDS Validation", "Pre checks (AMOS)", "CIQ Checks", "Audit (Pre vs CIQ)", "CR Desc",
+     "EDP Validator", "Consolidated Report"]
 )
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1525,207 +1526,205 @@ with tab_rfds:
 # ══════════════════════════════════════════════════════════════════════
 # TAB 2 — Audit: Pre checks (AMOS) / CIQ Checks / Audit (Pre vs CIQ) / CR Desc
 # ══════════════════════════════════════════════════════════════════════
-with tab_audit:
-    sub_pre, sub_ciq, sub_audit, sub_crdesc = st.tabs(["Pre checks (AMOS)", "CIQ Checks", "Audit (Pre vs CIQ)", "CR Desc"])
 
-    with sub_pre:
-        if not node_logs_text:
-            st.info("No Pre kget-all logs were loaded for this run.")
-        else:
-            summary_rows, lte_rows, nr_rows = state["amos_summary_rows"], state["amos_lte_rows"], state["amos_nr_rows"]
+with tab_pre:
+    if not node_logs_text:
+        st.info("No Pre kget-all logs were loaded for this run.")
+    else:
+        summary_rows, lte_rows, nr_rows = state["amos_summary_rows"], state["amos_lte_rows"], state["amos_nr_rows"]
 
-            section_title("Node Summary", badge=f"{len(summary_rows)} NODE(S)")
-            st.markdown(render_table(summary_rows, status_key=None, columns=[
-                ("node", "Node ID"), ("sw_package", "BB Type"), ("sw_version", "SW Version"),
-                ("type", "Mode"), ("ptp_status", "PTP Status"), ("sa_nsa_status", "SA/NSA Status"),
-                ("vonr_status", "VoNR Status"),
-            ]), unsafe_allow_html=True)
+        section_title("Node Summary", badge=f"{len(summary_rows)} NODE(S)")
+        st.markdown(render_table(summary_rows, status_key=None, columns=[
+            ("node", "Node ID"), ("sw_package", "BB Type"), ("sw_version", "SW Version"),
+            ("type", "Mode"), ("ptp_status", "PTP Status"), ("sa_nsa_status", "SA/NSA Status"),
+            ("vonr_status", "VoNR Status"),
+        ]), unsafe_allow_html=True)
 
-            section_title(f"LTE Cells — {', '.join(summary_rows and [r['node'] for r in summary_rows] or sorted(node_logs_text))}",
-                          badge=f"{len(lte_rows)} CELLS")
-            st.markdown(render_table(lte_rows, status_key=None, columns=[
-                ("node", "Node"), ("cell", "Cell"), ("sector_carrier", "Sector Carries"), ("rru", "RRUs"),
-                ("radio_type", "Radio Type"), ("sharing_radio", "Sharing Radio"), ("tx", "TX"), ("rx", "RX"),
-                ("rfbranch_tx_ref", "RFBRANCHTXREF"), ("rfbranch_rx_ref", "RFBRANCHRXREF"),
-                ("sef_rfbranches", "SEF RFBRANCHES"), ("pre_existing_dss", "Pre Existing DSS"),
-                ("rilink_id", "RiLink ID"), ("rilink_port", "RiLink Port"), ("rilink_type", "RiLink"),
-                ("air_if_load_profile", "AirIfLoadProfile"),
-                ("eutranfreqcheck", "EutranFreqCheck"),
-            ], html_cols={"eutranfreqcheck"}), unsafe_allow_html=True)
+        section_title(f"LTE Cells — {', '.join(summary_rows and [r['node'] for r in summary_rows] or sorted(node_logs_text))}",
+                      badge=f"{len(lte_rows)} CELLS")
+        st.markdown(render_table(lte_rows, status_key=None, columns=[
+            ("node", "Node"), ("cell", "Cell"), ("sector_carrier", "Sector Carries"), ("rru", "RRUs"),
+            ("radio_type", "Radio Type"), ("sharing_radio", "Sharing Radio"), ("tx", "TX"), ("rx", "RX"),
+            ("rfbranch_tx_ref", "RFBRANCHTXREF"), ("rfbranch_rx_ref", "RFBRANCHRXREF"),
+            ("sef_rfbranches", "SEF RFBRANCHES"), ("pre_existing_dss", "Pre Existing DSS"),
+            ("rilink_id", "RiLink ID"), ("rilink_port", "RiLink Port"), ("rilink_type", "RiLink"),
+            ("air_if_load_profile", "AirIfLoadProfile"),
+            ("eutranfreqcheck", "EutranFreqCheck"),
+        ], html_cols={"eutranfreqcheck"}), unsafe_allow_html=True)
 
-            section_title("5G NR Cells", badge=f"{len(nr_rows)} CELLS")
-            st.markdown(render_table(nr_rows, status_key=None, columns=[
-                ("node", "Node"), ("cell", "Cell"), ("rru", "RRUs"), ("tx", "TX"), ("rx", "RX"),
-                ("sef_rfbranches", "SEF RFBRANCHES"),
-                ("rilink_id", "RiLink ID"), ("rilink_port", "RiLink Port"), ("rilink_type", "RiLink"),
-            ]), unsafe_allow_html=True)
+        section_title("5G NR Cells", badge=f"{len(nr_rows)} CELLS")
+        st.markdown(render_table(nr_rows, status_key=None, columns=[
+            ("node", "Node"), ("cell", "Cell"), ("rru", "RRUs"), ("tx", "TX"), ("rx", "RX"),
+            ("sef_rfbranches", "SEF RFBRANCHES"),
+            ("rilink_id", "RiLink ID"), ("rilink_port", "RiLink Port"), ("rilink_type", "RiLink"),
+        ]), unsafe_allow_html=True)
 
-    with sub_ciq:
-        import ciq_checks as cc
+with tab_ciq:
+    import ciq_checks as cc
 
-        controller_rows = cv.build_controller_info(ciq_wb)
-        if controller_rows:
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                section_title("Node Integration")
-                st.markdown(render_table(cv.build_node_integration(ciq_wb), status_key=None, columns=[
-                    ("node", "Node"), ("eNBId", "ENBID"), ("eNodeB", "ENODEB"), ("gNBId", "GNBID"), ("gNodeB", "GNODEB"),
-                    ("mode", "Mode"), ("bb_type", "BB Type"), ("mme_region", "MME Region"), ("enm", "ENM"),
-                    ("xmu", "XMU"), ("ports", "Ports"),
-                ]), unsafe_allow_html=True)
-            with col2:
-                section_title("Controller Info")
-                st.markdown(render_table(controller_rows, status_key=None, columns=[
-                    ("usid", "USID"), ("controller", "Controller"), ("id", "ID"),
-                ]), unsafe_allow_html=True)
-        else:
+    controller_rows = cv.build_controller_info(ciq_wb)
+    if controller_rows:
+        col1, col2 = st.columns([2, 1])
+        with col1:
             section_title("Node Integration")
             st.markdown(render_table(cv.build_node_integration(ciq_wb), status_key=None, columns=[
                 ("node", "Node"), ("eNBId", "ENBID"), ("eNodeB", "ENODEB"), ("gNBId", "GNBID"), ("gNodeB", "GNODEB"),
                 ("mode", "Mode"), ("bb_type", "BB Type"), ("mme_region", "MME Region"), ("enm", "ENM"),
                 ("xmu", "XMU"), ("ports", "Ports"),
             ]), unsafe_allow_html=True)
-
-        ciq_lte_rows = cc.build_lte_ciq_rows(ciq_wb, rbb_results=results.get("rbb_tx_isdlonly_4g", []))
-        ciq_nr_rows = cc.build_nr_ciq_rows(ciq_wb)
-        cc.apply_link_and_sharing(ciq_lte_rows, ciq_nr_rows)
-
-        section_title("LTE E-UTRAN Parameters", badge=f"{len(ciq_lte_rows)}")
-        st.markdown(render_table(ciq_lte_rows, status_key="status", columns=[
-            ("node", "Node"), ("cell", "Cell"), ("pci", "PCI"), ("cell_id", "Cell ID"),
-            ("electrical_tilt", "Electrical Tilt"),
-            ("rbb_type", "RBB Type Verification"), ("tx", "TX"), ("rx", "RX"),
-            ("riport", "RIPORT"), ("sharing_radio", "Sharing Radio"),
-            ("link", "Link (Single/Doublelink)"), ("comments_html", "Comments/Warning"),
-        ]), unsafe_allow_html=True)
-
-        section_title("5G NR Parameters", badge=f"{len(ciq_nr_rows)}")
-        st.markdown(render_table(ciq_nr_rows, status_key="status", columns=[
-            ("node", "Node"), ("cell", "Cell"), ("sef", "SEF"), ("fru", "FRU"), ("nr_pci", "NR PCI"),
-            ("cell_id", "Cell ID"),
-            ("electrical_tilt", "Electrical Tilt"), ("rbb_type", "RBB Type Verification"), ("riport", "RIPORT"),
-            ("sharing_radio", "Sharing Radio"), ("link", "Link (Single/Doublelink)"), ("comments_html", "Comments/Warning"),
-        ]), unsafe_allow_html=True)
-
-        antenna_rows = cs.check_antenna_uniqueness(node_id="", ciq_wb=ciq_wb)
-        section_title("Antenna Uniqueness", badge=f"{len(antenna_rows)}")
-        st.markdown(render_table(antenna_rows, status_key="status", columns=[
-            ("cell", "Cells"), ("aug_au_asu_1", "AUG/AU/ASU (1)"), ("aug_au_asu_2", "AUG/AU/ASU (2)"),
-            ("verdict", "Status"),
-        ]), unsafe_allow_html=True)
-
-    with sub_audit:
-        import pre_post_audit as ppa
-
-        section_title("Pre vs Post")
-        pre_summary_rows = state["amos_summary_rows"]
-        ciq_node_rows = cv.build_node_integration(ciq_wb)
-        node_pre_post_rows = ppa.build_node_pre_post(pre_summary_rows, ciq_node_rows, node_logs_text, edp_rows, ciq_wb=ciq_wb)
-        st.markdown(render_node_pre_post_table(node_pre_post_rows), unsafe_allow_html=True)
-
-        if node_logs_text:
-            lte_pp_rows = ppa.compare_lte_cell_level(node_logs_text, ciq_wb)
-            lte_pp_summary = ppa.summarize_rows(lte_pp_rows)
-            section_title("LTE: Pre vs Post")
-            st.markdown(_pre_post_summary_pills(lte_pp_summary), unsafe_allow_html=True)
-            st.caption("Green = Match  Red = Mismatch  Format: PRE | POST")
-            st.markdown(render_cell_pre_post_table(lte_pp_rows, [
-                ("sc", "_sc_ok", "Sec Carrier"), ("cellid", "_cellid_ok", "Cell ID"), ("tac", "_tac_ok", "TAC"),
-                ("bw", "_bw_ok", "BW"), ("dl", "_dl_ok", "EARFCN DL"), ("ul", "_ul_ok", "EARFCN UL"),
-                ("power", "_power_ok", "Power"), ("tx", "_tx_ok", "TX"), ("rx", "_rx_ok", "RX"),
-                ("rru", "_rru_ok", "RRU Model"), ("cellrange", "_cellrange_ok", "Cell Range"),
-                ("dss", "_dss_ok", "DSS"),
+        with col2:
+            section_title("Controller Info")
+            st.markdown(render_table(controller_rows, status_key=None, columns=[
+                ("usid", "USID"), ("controller", "Controller"), ("id", "ID"),
             ]), unsafe_allow_html=True)
+    else:
+        section_title("Node Integration")
+        st.markdown(render_table(cv.build_node_integration(ciq_wb), status_key=None, columns=[
+            ("node", "Node"), ("eNBId", "ENBID"), ("eNodeB", "ENODEB"), ("gNBId", "GNBID"), ("gNodeB", "GNODEB"),
+            ("mode", "Mode"), ("bb_type", "BB Type"), ("mme_region", "MME Region"), ("enm", "ENM"),
+            ("xmu", "XMU"), ("ports", "Ports"),
+        ]), unsafe_allow_html=True)
 
-            nr_pp_rows = ppa.compare_nr_cell_level(node_logs_text, ciq_wb)
-            nr_pp_summary = ppa.summarize_rows(nr_pp_rows)
-            section_title("5G: Pre vs Post")
-            st.markdown(_pre_post_summary_pills(nr_pp_summary), unsafe_allow_html=True)
-            st.caption("Green = Match  Red = Mismatch  Format: PRE | POST")
-            st.markdown(render_cell_pre_post_table(nr_pp_rows, [
-                ("cellid", "_cellid_ok", "Cell ID"), ("dl", "_dl_ok", "ARFCN DL"), ("ul", "_ul_ok", "ARFCN UL"),
-                ("bw_dl", "_bw_dl_ok", "BW DL"), ("bw_ul", "_bw_ul_ok", "BW UL"), ("power", "_power_ok", "TX Power"),
-                ("ssb", "_ssb_ok", "SSB Frequency"), ("rru", "_rru_ok", "RRU Model"),
-                ("cellrange", "_cellrange_ok", "Cell Range"), ("dss", "_dss_ok", "DSS"),
-            ]), unsafe_allow_html=True)
+    ciq_lte_rows = cc.build_lte_ciq_rows(ciq_wb, rbb_results=results.get("rbb_tx_isdlonly_4g", []))
+    ciq_nr_rows = cc.build_nr_ciq_rows(ciq_wb)
+    cc.apply_link_and_sharing(ciq_lte_rows, ciq_nr_rows)
+
+    section_title("LTE E-UTRAN Parameters", badge=f"{len(ciq_lte_rows)}")
+    st.markdown(render_table(ciq_lte_rows, status_key="status", columns=[
+        ("node", "Node"), ("cell", "Cell"), ("pci", "PCI"), ("cell_id", "Cell ID"),
+        ("electrical_tilt", "Electrical Tilt"),
+        ("rbb_type", "RBB Type Verification"), ("tx", "TX"), ("rx", "RX"),
+        ("riport", "RIPORT"), ("sharing_radio", "Sharing Radio"),
+        ("link", "Link (Single/Doublelink)"), ("comments_html", "Comments/Warning"),
+    ]), unsafe_allow_html=True)
+
+    section_title("5G NR Parameters", badge=f"{len(ciq_nr_rows)}")
+    st.markdown(render_table(ciq_nr_rows, status_key="status", columns=[
+        ("node", "Node"), ("cell", "Cell"), ("sef", "SEF"), ("fru", "FRU"), ("nr_pci", "NR PCI"),
+        ("cell_id", "Cell ID"),
+        ("electrical_tilt", "Electrical Tilt"), ("rbb_type", "RBB Type Verification"), ("riport", "RIPORT"),
+        ("sharing_radio", "Sharing Radio"), ("link", "Link (Single/Doublelink)"), ("comments_html", "Comments/Warning"),
+    ]), unsafe_allow_html=True)
+
+    antenna_rows = cs.check_antenna_uniqueness(node_id="", ciq_wb=ciq_wb)
+    section_title("Antenna Uniqueness", badge=f"{len(antenna_rows)}")
+    st.markdown(render_table(antenna_rows, status_key="status", columns=[
+        ("cell", "Cells"), ("aug_au_asu_1", "AUG/AU/ASU (1)"), ("aug_au_asu_2", "AUG/AU/ASU (2)"),
+        ("verdict", "Status"),
+    ]), unsafe_allow_html=True)
+
+with tab_auditpvc:
+    import pre_post_audit as ppa
+
+    section_title("Pre vs Post")
+    pre_summary_rows = state["amos_summary_rows"]
+    ciq_node_rows = cv.build_node_integration(ciq_wb)
+    node_pre_post_rows = ppa.build_node_pre_post(pre_summary_rows, ciq_node_rows, node_logs_text, edp_rows, ciq_wb=ciq_wb)
+    st.markdown(render_node_pre_post_table(node_pre_post_rows), unsafe_allow_html=True)
+
+    if node_logs_text:
+        lte_pp_rows = ppa.compare_lte_cell_level(node_logs_text, ciq_wb)
+        lte_pp_summary = ppa.summarize_rows(lte_pp_rows)
+        section_title("LTE: Pre vs Post")
+        st.markdown(_pre_post_summary_pills(lte_pp_summary), unsafe_allow_html=True)
+        st.caption("Green = Match  Red = Mismatch  Format: PRE | POST")
+        st.markdown(render_cell_pre_post_table(lte_pp_rows, [
+            ("sc", "_sc_ok", "Sec Carrier"), ("cellid", "_cellid_ok", "Cell ID"), ("tac", "_tac_ok", "TAC"),
+            ("bw", "_bw_ok", "BW"), ("dl", "_dl_ok", "EARFCN DL"), ("ul", "_ul_ok", "EARFCN UL"),
+            ("power", "_power_ok", "Power"), ("tx", "_tx_ok", "TX"), ("rx", "_rx_ok", "RX"),
+            ("rru", "_rru_ok", "RRU Model"), ("cellrange", "_cellrange_ok", "Cell Range"),
+            ("dss", "_dss_ok", "DSS"),
+        ]), unsafe_allow_html=True)
+
+        nr_pp_rows = ppa.compare_nr_cell_level(node_logs_text, ciq_wb)
+        nr_pp_summary = ppa.summarize_rows(nr_pp_rows)
+        section_title("5G: Pre vs Post")
+        st.markdown(_pre_post_summary_pills(nr_pp_summary), unsafe_allow_html=True)
+        st.caption("Green = Match  Red = Mismatch  Format: PRE | POST")
+        st.markdown(render_cell_pre_post_table(nr_pp_rows, [
+            ("cellid", "_cellid_ok", "Cell ID"), ("dl", "_dl_ok", "ARFCN DL"), ("ul", "_ul_ok", "ARFCN UL"),
+            ("bw_dl", "_bw_dl_ok", "BW DL"), ("bw_ul", "_bw_ul_ok", "BW UL"), ("power", "_power_ok", "TX Power"),
+            ("ssb", "_ssb_ok", "SSB Frequency"), ("rru", "_rru_ok", "RRU Model"),
+            ("cellrange", "_cellrange_ok", "Cell Range"), ("dss", "_dss_ok", "DSS"),
+        ]), unsafe_allow_html=True)
+    else:
+        st.caption("Upload Pre kget-all logs to see the LTE/5G cell-level Pre vs Post tables.")
+
+    # Engineer Comments is computed silently here (not displayed in this
+    # tab) purely so CR Desc's auto-detected Nodes/Bands still populate —
+    # CR Desc reads state["engineer_comments"] via extract_bands_from_comments().
+    amos_lte_rows = state["amos_lte_rows"] if node_logs_text else None
+    amos_nr_rows = state["amos_nr_rows"] if node_logs_text else None
+    ciq_lte_rows = cv.build_param_table(ciq_wb, "eUtran Parameters", ["EutranCellFDDId", "RRU type"])
+    ciq_nr_rows = cv.build_param_table(ciq_wb, "5G Info", ["NRCellDU", "RRU Type"])
+    state["engineer_comments"] = build_engineer_comments(
+        sow, results, checked_nodes,
+        amos_lte_rows=amos_lte_rows, amos_nr_rows=amos_nr_rows,
+        ciq_lte_rows=ciq_lte_rows, ciq_nr_rows=ciq_nr_rows,
+        node_logs_text=node_logs_text,
+    )
+
+with tab_crdesc:
+    section_title("CR Description")
+    engineer_comments = state.get("engineer_comments", [])
+    all_nodes, deleted_nodes_cr, regular_nodes_cr = extract_nodes_from_audit(sow, checked_nodes)
+    bands_cr = extract_bands_from_comments(engineer_comments)
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        mic_mca = st.selectbox("MIC DESC", ["MIC - MCA", "MCA - CRAN"], key="cr_mic_mca")
+    with c2:
+        site_name_in = st.text_input("Site Name", placeholder="e.g. DOWNTOWN_EAST", key="cr_site_name")
+    with c3:
+        # Auto-fetched from the CIQ's own 5G Info 'FA Code' column
+        # (site_details['fa_code'] is always CIQ-sourced - see
+        # checks_node.build_site_details()) - still editable, since the
+        # user may need to override it.
+        fa_number_in = st.text_input("FA Number", value=site_details.get("fa_code") or "",
+                                      placeholder="e.g. 1034567", key="cr_fa_number")
+    c4, c5 = st.columns(2)
+    with c4:
+        sw_version_in = st.text_input("Sw Version", placeholder="e.g. 25.Q4", key="cr_sw_version")
+    with c5:
+        link_in = st.text_input("Link", placeholder="link to CIQ / ticket / script", key="cr_link")
+
+    rfds_fa = site_details.get("rfds_fa_code")
+    if rfds_fa:
+        ciq_fa = site_details.get("fa_code")
+        if ciq_fa and rfds_fa != ciq_fa:
+            st.warning(f"FA Code mismatch — CIQ: `{ciq_fa}` vs RFDS: `{rfds_fa}`. "
+                       f"The field above uses the CIQ value; verify which is correct before sending.")
         else:
-            st.caption("Upload Pre kget-all logs to see the LTE/5G cell-level Pre vs Post tables.")
+            st.caption(f"FA Code confirmed — CIQ and RFDS both report `{ciq_fa}`.")
+    elif rfds_pages is not None:
+        st.caption("RFDS was provided but no FA Code was found on it — CIQ value used, not cross-checked.")
 
-        # Engineer Comments is computed silently here (not displayed in this
-        # tab) purely so CR Desc's auto-detected Nodes/Bands still populate —
-        # CR Desc reads state["engineer_comments"] via extract_bands_from_comments().
-        amos_lte_rows = state["amos_lte_rows"] if node_logs_text else None
-        amos_nr_rows = state["amos_nr_rows"] if node_logs_text else None
-        ciq_lte_rows = cv.build_param_table(ciq_wb, "eUtran Parameters", ["EutranCellFDDId", "RRU type"])
-        ciq_nr_rows = cv.build_param_table(ciq_wb, "5G Info", ["NRCellDU", "RRU Type"])
-        state["engineer_comments"] = build_engineer_comments(
-            sow, results, checked_nodes,
-            amos_lte_rows=amos_lte_rows, amos_nr_rows=amos_nr_rows,
-            ciq_lte_rows=ciq_lte_rows, ciq_nr_rows=ciq_nr_rows,
-            node_logs_text=node_logs_text,
-        )
+    n1, n2 = st.columns(2)
+    with n1:
+        st.markdown("**Nodes (from Audit)** — auto-detected")
+        st.markdown(", ".join(all_nodes) if all_nodes else "_Run validation to auto-populate…_")
+    with n2:
+        st.markdown("**Bands (from Audit)** — auto-detected")
+        st.markdown(" / ".join(bands_cr) if bands_cr else "_Run validation to auto-populate…_")
 
-    with sub_crdesc:
-        section_title("CR Description")
-        engineer_comments = state.get("engineer_comments", [])
-        all_nodes, deleted_nodes_cr, regular_nodes_cr = extract_nodes_from_audit(sow, checked_nodes)
-        bands_cr = extract_bands_from_comments(engineer_comments)
+    if st.button("Generate CR Description", type="primary", key="btn_gen_cr"):
+        cr_text, breakdown = build_cr_description(mic_mca, site_name_in, fa_number_in, all_nodes, bands_cr)
+        if cr_text is None:
+            st.error("Please enter Site Name and FA Number (and make sure a validation run has produced node data).")
+        else:
+            st.session_state["cr_output"] = cr_text
+            st.session_state["cr_breakdown"] = breakdown
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            mic_mca = st.selectbox("MIC DESC", ["MIC - MCA", "MCA - CRAN"], key="cr_mic_mca")
-        with c2:
-            site_name_in = st.text_input("Site Name", placeholder="e.g. DOWNTOWN_EAST", key="cr_site_name")
-        with c3:
-            # Auto-fetched from the CIQ's own 5G Info 'FA Code' column
-            # (site_details['fa_code'] is always CIQ-sourced - see
-            # checks_node.build_site_details()) - still editable, since the
-            # user may need to override it.
-            fa_number_in = st.text_input("FA Number", value=site_details.get("fa_code") or "",
-                                          placeholder="e.g. 1034567", key="cr_fa_number")
-        c4, c5 = st.columns(2)
-        with c4:
-            sw_version_in = st.text_input("Sw Version", placeholder="e.g. 25.Q4", key="cr_sw_version")
-        with c5:
-            link_in = st.text_input("Link", placeholder="link to CIQ / ticket / script", key="cr_link")
+    if st.session_state.get("cr_output"):
+        st.text_area("Generated CR description", value=st.session_state["cr_output"], height=80, key="cr_output_area")
+        st.markdown(render_table(
+            [{"field": k, "value": v} for k, v in (st.session_state.get("cr_breakdown") or [])],
+            columns=[("field", "Field"), ("value", "Value")], status_key=None,
+        ), unsafe_allow_html=True)
 
-        rfds_fa = site_details.get("rfds_fa_code")
-        if rfds_fa:
-            ciq_fa = site_details.get("fa_code")
-            if ciq_fa and rfds_fa != ciq_fa:
-                st.warning(f"FA Code mismatch — CIQ: `{ciq_fa}` vs RFDS: `{rfds_fa}`. "
-                           f"The field above uses the CIQ value; verify which is correct before sending.")
-            else:
-                st.caption(f"FA Code confirmed — CIQ and RFDS both report `{ciq_fa}`.")
-        elif rfds_pages is not None:
-            st.caption("RFDS was provided but no FA Code was found on it — CIQ value used, not cross-checked.")
-
-        n1, n2 = st.columns(2)
-        with n1:
-            st.markdown("**Nodes (from Audit)** — auto-detected")
-            st.markdown(", ".join(all_nodes) if all_nodes else "_Run validation to auto-populate…_")
-        with n2:
-            st.markdown("**Bands (from Audit)** — auto-detected")
-            st.markdown(" / ".join(bands_cr) if bands_cr else "_Run validation to auto-populate…_")
-
-        if st.button("Generate CR Description", type="primary", key="btn_gen_cr"):
-            cr_text, breakdown = build_cr_description(mic_mca, site_name_in, fa_number_in, all_nodes, bands_cr)
-            if cr_text is None:
-                st.error("Please enter Site Name and FA Number (and make sure a validation run has produced node data).")
-            else:
-                st.session_state["cr_output"] = cr_text
-                st.session_state["cr_breakdown"] = breakdown
-
-        if st.session_state.get("cr_output"):
-            st.text_area("Generated CR description", value=st.session_state["cr_output"], height=80, key="cr_output_area")
-            st.markdown(render_table(
-                [{"field": k, "value": v} for k, v in (st.session_state.get("cr_breakdown") or [])],
-                columns=[("field", "Field"), ("value", "Value")], status_key=None,
-            ), unsafe_allow_html=True)
-
-        st.divider()
-        email_text = build_radio_ret_email(sw_version_in, fa_number_in, link_in, engineer_comments)
-        st.text_area("Radio/RET Comments Email", value=email_text, height=260, key="cr_email_area")
+    st.divider()
+    email_text = build_radio_ret_email(sw_version_in, fa_number_in, link_in, engineer_comments)
+    st.text_area("Radio/RET Comments Email", value=email_text, height=260, key="cr_email_area")
 
 # ══════════════════════════════════════════════════════════════════════
 # TAB 3 — EDP Validator
