@@ -981,7 +981,11 @@ def extract_cell_to_rilink_detail(text, fru_by_cell):
     port.
 
     A cell whose radio FRU is linked via more than one RiLink row (dual-
-    link radio) gets both ids/ports joined with '+'. Returns {} if the
+    link radio) gets both ids/ports joined with '+', and 'rilink_type' is
+    set from that same count: 'Single Link' (1 RiLink row), 'Double Link'
+    (2 - the normal dual-link case), or 'N Links' for anything else seen
+    (defensive - not confirmed real, but reported honestly rather than
+    mislabeled as Single/Double if it ever occurs). Returns {} if the
     rilink= command isn't present in this log."""
     if not text or not fru_by_cell:
         return {}
@@ -1013,9 +1017,11 @@ def extract_cell_to_rilink_detail(text, fru_by_cell):
         for fru in (f.strip() for f in fru_str.split(",")):
             links += fru_to_links.get(fru, [])
         if links:
+            link_type = {1: "Single Link", 2: "Double Link"}.get(len(links), f"{len(links)} Links")
             result[cell] = {
                 "rilink_id": "+".join(i for i, _ in links),
                 "rilink_port": "+".join(p for _, p in links),
+                "rilink_type": link_type,
             }
     return result
 
