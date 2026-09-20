@@ -102,6 +102,13 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
   border-radius: 12px !important; box-shadow: 0 2px 10px rgba(1,42,78,0.06);
   padding: 4px 2px;
 }
+/* Compact mode: Streamlit's default ~1rem gap between stacked elements
+   (section title, table, next bordered container, ...) added up fast on
+   tabs with several stacked container(border=True) blocks (RFDS
+   Validation had ~6 in a row) — tighten the gap and the blocks' own
+   margins so the same content takes noticeably less vertical space. */
+div[data-testid="stVerticalBlock"] { gap: 0.5rem; }
+div[data-testid="stVerticalBlockBorderWrapper"] > div { gap: 0.35rem; }
 .stTabs [data-baseweb="tab-list"] {
   gap: 4px; border-bottom: 2px solid #dde5ef; padding-bottom: 0;
 }
@@ -129,16 +136,16 @@ div[data-testid="stExpander"] summary:hover { background:#f4f7fc; border-radius:
 .qkx-stat b { color:#64748b; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; }
 .qkx-table-wrap {
   overflow-x:auto; border:1px solid #dde5ef; border-radius:0 0 10px 10px;
-  margin: 0 0 22px 0; border-top:none; box-shadow:0 2px 8px rgba(1,42,78,.05);
+  margin: 0 0 8px 0; border-top:none; box-shadow:0 2px 8px rgba(1,42,78,.05);
 }
 .qkx-table { width:100%; border-collapse:collapse; font-size:12.8px; line-height:1.35; }
 .qkx-table th {
   background:#101F90; color:#ffffff; font-weight:700; text-align:left;
-  padding:8px 11px; border:none; border-right:1px solid rgba(255,255,255,.14);
+  padding:6px 10px; border:none; border-right:1px solid rgba(255,255,255,.14);
   white-space:nowrap; font-size:11.5px; letter-spacing:.03em; text-transform:uppercase;
   position:sticky; top:0;
 }
-.qkx-table td { padding:7px 11px; border-bottom:1px solid #eef1f6; vertical-align:middle; }
+.qkx-table td { padding:5px 10px; border-bottom:1px solid #eef1f6; vertical-align:middle; }
 .qkx-table tbody tr:hover td { background:rgba(16,31,144,.04); }
 /* Mismatch rows are called out the same way in EVERY table/tab: red tint,
    red text and a red left marker bar, so a failure reads identically
@@ -156,8 +163,8 @@ div[data-testid="stExpander"] summary:hover { background:#f4f7fc; border-radius:
   background:#fff; border:1px dashed #cbd5e1; border-radius:10px; text-align:center;
 }
 .qkx-section-title {
-  font-weight:700; font-size:13.5px; color:#fff; margin: 22px 0 0 0;
-  padding:10px 14px; border:none;
+  font-weight:700; font-size:13.5px; color:#fff; margin: 6px 0 0 0;
+  padding:8px 14px; border:none;
   border-radius:10px 10px 0 0;
   background: linear-gradient(90deg, #101F90 0%, #1e3a8a 100%);
   box-shadow:0 2px 6px rgba(16,31,144,.16);
@@ -1477,8 +1484,6 @@ with tab_rfds:
                                                                         ("edp_model", "EDP Model"), ("rfds", "RFDS")],
                                                 note_key="comments"),
                     unsafe_allow_html=True)
-        if rfds_pages is not None:
-            st.caption("RFDS model is a best-effort text match against the RFDS's Non RF Inventory section, not a structured per-node field.")
 
     with st.container(border=True):
         section_title("XMU Validation")
@@ -1501,7 +1506,6 @@ with tab_rfds:
                                                                         ("rfds_xmu", "RFDS XMU")],
                                                 note_key="comments"),
                     unsafe_allow_html=True)
-        st.caption("RFDS doesn't expose an XMU count (only presence) — RFDS XMU shows Found/Not Found, not a count.")
 
     with st.container(border=True):
         grouped_rows = _memo("grouped_rows", lambda: build_rfds_grouped_rows(
