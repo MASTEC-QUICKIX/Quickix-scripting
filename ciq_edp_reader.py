@@ -156,12 +156,25 @@ def edp_discover_secondary(edp_rows, primary_id):
     WITHOUT relying on CIQ having told us its name. Confirmed real EDP
     structure: every row belonging to one physical site — Primary,
     Secondary, and any ancillary-equipment rows — shares the same
-    SITE_USID (and EDP_SITE_ID). A site can host SEVERAL primary/secondary
+    SITE_USID AND EDP_SITE_ID. A site can host SEVERAL primary/secondary
     pairs at once (confirmed real case, SITE_USID 64921: FCL04120/
     FCON094120 AND FCL09220R AND FCL07900R/FCON097900 all on one site) —
     matching on 'any blank-port BBU row in the group' picked whichever one
     came first in iteration order for EVERY primary at that site,
     regardless of whose it actually was.
+
+    SITE_USID is NOT scoped to one physical site on a CRAN hub export —
+    confirmed real case (HXL05262/HXL06262/HXIN090035F/HXIN015262):
+    a single EDP export can carry 50+ rows spanning a dozen physically
+    distinct sites that all share the SAME SITE_USID (the hub's own
+    USID, not a per-site one). Matching on SITE_USID alone let the
+    Secondary search wander into an UNRELATED site elsewhere in the hub
+    that happened to reuse the same cabinet number (confirmed real bug:
+    HXL06262's Secondary was resolved as HXIN005075 — a different
+    physical site on the same hub with its own 'BBU 05V' cabinet —
+    instead of the real pair, HXIN015262). EDP_SITE_ID is the tighter,
+    per-physical-site grouping key and is required in addition to
+    SITE_USID to keep the search inside the primary's own site.
 
     A Secondary's own CABINET is its Primary's cabinet number with a
     trailing 'V' (confirmed convention, same one _cabinet_pairing_map in
@@ -177,12 +190,19 @@ def edp_discover_secondary(edp_rows, primary_id):
     if not prim_rows:
         return None
     site_usid = str(prim_rows[0].get('SITE_USID', '')).strip()
+    edp_site_id = str(prim_rows[0].get('EDP_SITE_ID', '')).strip()
     prim_cab = _norm_cabinet(prim_rows[0].get('CABINET'))
     if not site_usid or not prim_cab:
         return None
     expected_cab = prim_cab if prim_cab.endswith('V') else prim_cab + 'V'
     for r in edp_rows:
         if str(r.get('SITE_USID', '')).strip() != site_usid:
+            continue
+        # When EDP_SITE_ID is available, require it to match too - see
+        # docstring above. Only skip this extra guard if the primary's
+        # own row genuinely has no EDP_SITE_ID (older/partial export),
+        # so this never regresses a file where the field is absent.
+        if edp_site_id and str(r.get('EDP_SITE_ID', '')).strip() != edp_site_id:
             continue
         site_name = str(r.get('SITE_NAME', '')).strip()
         if not site_name or site_name.upper() == str(primary_id).strip().upper():
