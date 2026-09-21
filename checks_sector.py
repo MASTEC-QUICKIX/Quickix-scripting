@@ -1964,7 +1964,26 @@ def check_antenna_uniqueness(node_id, ciq_wb):
                     colocation.setdefault(cell, set()).add(other)
                     colocation.setdefault(other, set()).add(cell)
 
-    aug_by_cell = {r.get('EutranCellFDDId'): (r.get('AntennaUnitGroup'), r.get('AntennaUnit'), r.get('AntennaSubunit'))
+    def _norm_asu(v):
+        # AntennaUnitGroup/Unit/Subunit are read straight off openpyxl cell
+        # values with no type coercion - confirmed real bug, a genuine CIQ
+        # where the SAME antenna subunit is entered as text on the 5G row
+        # ('3') and as a number on the LTE row (3): a plain tuple compare
+        # ('1', 1, '3') == ('1', 1, 3) is False in Python even though the
+        # antenna position is identical, so a correctly-shared sector pair
+        # was flagged 'Not shared'. Normalizing every component to a plain
+        # string (and dropping a trailing '.0' from a numeric cell like
+        # 3.0) makes the comparison match on VALUE, not on the source
+        # cell's Excel number/text formatting.
+        if v is None:
+            return ''
+        s = str(v).strip()
+        if re.fullmatch(r'-?\d+\.0+', s):
+            s = s.split('.')[0]
+        return s
+
+    aug_by_cell = {r.get('EutranCellFDDId'): tuple(_norm_asu(v) for v in
+                   (r.get('AntennaUnitGroup'), r.get('AntennaUnit'), r.get('AntennaSubunit')))
                    for r in antenna_rows if r.get('EutranCellFDDId')}
 
     results = []
