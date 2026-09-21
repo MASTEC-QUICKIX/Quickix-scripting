@@ -261,9 +261,12 @@ def _agg_vonr_prelog(vonr_prelog_results):
 def _agg_row55(vonr_ciq_results):
     """Row 55: CIQ 'VoNR' column vs Pre log verdict, SA cells only.
     Worst-result-wins across nodes, same convention as every other _agg*
-    here: any MISMATCH fails the whole row; else any MATCH passes it;
-    else (every node had zero SA cells) the row is 'na', not a pass -
-    VoNR simply doesn't apply on this site."""
+    here: any MISMATCH fails the whole row; else any MATCH (VoNR
+    genuinely Active and CIQ agrees) passes it; else any INFO (SA
+    confirmed, but VoNR itself simply isn't switched on yet in Pre, CIQ
+    agrees - normal pre-activation state, not a failure) reports which
+    node(s) that's true for; else (every node had zero SA cells) the row
+    is 'na', not a pass - VoNR simply doesn't apply on this site."""
     if not vonr_ciq_results:
         return "unknown", "No data (check did not run for this site)."
     real = [r for r in vonr_ciq_results if r.get("status") not in (None, "SKIPPED")]
@@ -278,6 +281,10 @@ def _agg_row55(vonr_ciq_results):
     matched = [r for r in real if r.get("status") == "MATCH"]
     if matched:
         return "match", f"{len(matched)} SA cell(s) checked, CIQ VoNR matches Pre log."
+    info = [r for r in real if r.get("status") == "INFO"]
+    if info:
+        nodes = sorted({str(r.get("node")) for r in info if r.get("node")})
+        return "info", f"VoNR: Not activated in Pre: {', '.join(nodes)}."
     na = [r for r in real if r.get("status") == "NA"]
     if na:
         return "na", "No SA cells on this node - VoNR not applicable."
