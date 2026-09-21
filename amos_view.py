@@ -85,14 +85,24 @@ def build_node_summary(node_id, text):
     board_model = pe.model_token(boards[0]['model']) if boards else "NOT FOUND"
     secondary = node_secondary_name(node_id, text)
     node_label = f"{node_id} / {secondary}" if secondary else node_id
+    sa_nsa = sa_nsa_status(text, nr_tac) if has_nr else "LTE Only"
+    # VoNR is only ever activated on an SA node - an LTE-only node can
+    # never be SA at all, and an NSA node isn't either, so trying to read
+    # a VoNR verdict off the Pre log for either one and reporting whatever
+    # epsFallbackOperation/CXC4012592 happen to say (usually nothing, since
+    # the feature isn't provisioned there) showed as "Unclear" - confirmed
+    # real case, an LTE-only node - which reads as an unresolved data gap
+    # rather than what it actually is: the check doesn't apply here.
+    vonr_status = ({True: "VoNR Active", False: "Not Active", None: "Unclear"}[pe.extract_vonr_status(text)]
+                   if sa_nsa == "SA" else "Not Applicable")
     return {
         "node": node_label,
         "sw_version": sw.get("sw_version", "NOT FOUND"),
         "sw_package": board_model,
         "type": node_type,
         "ptp_status": ptp_status(text),
-        "sa_nsa_status": sa_nsa_status(text, nr_tac) if has_nr else "LTE Only",
-        "vonr_status": {True: "VoNR Active", False: "Not Active", None: "Unclear"}[pe.extract_vonr_status(text)],
+        "sa_nsa_status": sa_nsa,
+        "vonr_status": vonr_status,
     }
 
 
