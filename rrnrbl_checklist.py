@@ -215,19 +215,20 @@ def _agg_row94(wcs_results):
     row 52 — kept out of this row's comment on purpose, per confirmed
     scope). check_wcs_slim() returns exactly one of three fixed
     (status, note) shapes per node; this just picks the right verdict
-    across every node on the site, worst-result-wins (a MISMATCH on any
-    one node fails the whole row, same convention as every other _agg*
-    here) — and always emits one of the three exact strings requested,
-    never a generated summary:
-        any node MISMATCH        -> mismatch, 'AirIfLoadProfile is non WCS_Slim for WCS sectors.'
-        no MISMATCH, any MATCH   -> match,     'AirIfLoadProfile is WCS_Slim for WCS sectors.'
-        only NA (no WCS at all)  -> na,        'No WCS sectors found.'
-        nothing usable           -> unknown,   whatever SKIPPED note(s) explain why."""
+    across every node on the site — and always emits one of the three
+    exact strings requested, never a generated summary:
+        any node INFO (non-slim)  -> info,  'AirIfLoadProfile is non WCS_Slim for WCS sectors.'
+        no INFO, any MATCH        -> match, 'AirIfLoadProfile is WCS_Slim for WCS sectors.'
+        only NA (no WCS at all)   -> na,    'No WCS sectors found.'
+        nothing usable            -> unknown, whatever SKIPPED note(s) explain why.
+    Non-slim is INFO (blue), not a red MISMATCH - per confirmed
+    correction: DSS active with non-slim WCS sectors is a valid,
+    currently-expected state on these sites."""
     if not wcs_results:
         return "unknown", "No data (check did not run for this site)."
     real = [r for r in wcs_results if r.get("status") not in (None, "SKIPPED")]
-    if any(r.get("status") == "MISMATCH" for r in real):
-        return "mismatch", "AirIfLoadProfile is non WCS_Slim for WCS sectors."
+    if any(r.get("status") == "INFO" for r in real):
+        return "info", "AirIfLoadProfile is non WCS_Slim for WCS sectors."
     if any(r.get("status") == "MATCH" for r in real):
         return "match", "AirIfLoadProfile is WCS_Slim for WCS sectors."
     if any(r.get("status") == "NA" for r in real):
