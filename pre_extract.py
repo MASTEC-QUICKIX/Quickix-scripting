@@ -1464,10 +1464,28 @@ def extract_bearer_oam_ipv6(text):
             # ULCoMP/ERAN in this command's own output order.
             router_iface_to_vlan.setdefault(rb_m.group(1), vlan_m.group(1))
 
+    # Which bucket a bearer interface belongs to is decided by ROUTER name
+    # first, THEN by the InterfaceIPv6 suffix - confirmed against real logs
+    # of all three node shapes:
+    #   - LTE-only:  Router=LTE, InterfaceIPv6=1            -> LTE bucket
+    #   - 5G-only:   Router=NR,  InterfaceIPv6=<name>_NR    -> NR bucket
+    #     (the interface name is a real board-port name, e.g.
+    #     'TN_IDL_B_NR' - NOT the bare literal 'NR' the old regex required,
+    #     so a 5G-only node's bearer interface fell through to the LTE
+    #     bucket every time, tagging its real values bearer_vlan_lte
+    #     instead of _nr - confirmed real bug, HXIN090035F: bearer/OAM
+    #     VLAN 212/211 extracted correctly but exposed only under the
+    #     _lte keys, so a caller keying off this node's own tech='NR'
+    #     (5G-only) found nothing and reported Pre VLAN/IPv6 as missing.)
+    #   - TMBB dual: BOTH identities live under Router=LTE, distinguished
+    #     only by the bare InterfaceIPv6 suffix: '=1' (LTE) vs '=NR' (NR).
+    # So: Router=NR is unconditionally the NR bucket; Router=LTE splits on
+    # whether InterfaceIPv6 is exactly the bare literal 'NR'.
     bearer_key_lte = next((k for k in router_iface_to_vlan
-                           if re.match(r'Router=(?:LTE|NR),InterfaceIPv6=(?!NR\b)\S+', k)), None)
+                           if re.match(r'Router=LTE,InterfaceIPv6=(?!NR$)\S+', k)), None)
     bearer_key_nr = next((k for k in router_iface_to_vlan
-                          if re.match(r'Router=(?:LTE|NR),InterfaceIPv6=NR$', k)), None)
+                          if re.match(r'Router=LTE,InterfaceIPv6=NR$', k)
+                          or re.match(r'Router=NR,InterfaceIPv6=\S+', k)), None)
     oam_key = next((k for k in router_iface_to_vlan if re.match(r'Router=(?:vr_OAM|OAM),InterfaceIPv6=', k)), None)
     bearer_vlan_lte = router_iface_to_vlan.get(bearer_key_lte)
     bearer_vlan_nr = router_iface_to_vlan.get(bearer_key_nr)
@@ -1500,8 +1518,15 @@ def extract_bearer_oam_ipv6(text):
         m = re.search(pat, text)
         return m.group(1) if m else None
 
-    bearer_router_ip_lte = _nexthop_address('LTE', '1') or _nexthop_address('NR', '1')
-    bearer_router_ip_nr = _nexthop_address('LTE', 'NR') or _nexthop_address('NR', 'NR')
+    # Same Router-name-first rule as the bearer VLAN split above: a 5G-only
+    # node's NextHop lives under 'Router=NR,...,NextHop=1' (suffix '1',
+    # same as LTE - a 5G-only node has only one bearer interface at all,
+    # so it never gets a distinct 'NR'-suffixed NextHop) - confirmed real
+    # log, HXIN090035F. The old code tried this exact pattern as an LTE
+    # fallback, tagging a 5G-only node's own default-router IP as
+    # bearer_router_ip_lte instead of _nr.
+    bearer_router_ip_lte = _nexthop_address('LTE', '1')
+    bearer_router_ip_nr = _nexthop_address('LTE', 'NR') or _nexthop_address('NR', '1')
     oam_router_ip = _nexthop_address('vr_OAM', '1') or _nexthop_address('OAM', '1')
 
     return {
