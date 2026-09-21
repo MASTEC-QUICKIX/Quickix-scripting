@@ -1442,6 +1442,7 @@ def check_rbb_tx_isdlonly_4g(node_id, ciq_wb, e_name):
         radio_port = str(row.get('Radio Port', '')).strip()
         rbb_link = pe.parse_rbb_link(rbb)
         radio_port_link = 'Double' if '/' in radio_port else ('Single' if radio_port else None)
+        rru_type = str(row.get('RRU type', '')).strip()
 
         label, sector = band_label(cell)
         where = f"{label or 'unknown band'} {sector or 'unknown sector'}"
@@ -1449,7 +1450,13 @@ def check_rbb_tx_isdlonly_4g(node_id, ciq_wb, e_name):
         if rbb_txrx is None:
             mismatches.append(f"RBB type '{rbb}' does not match the expected RBB<TX><RX> pattern.")
         elif ciq_txrx and rbb_txrx != ciq_txrx:
-            mismatches.append(f"RBB type {rbb} implies TX/RX {rbb_txrx} but noOfTxAntennas/noOfRxAntennas={ciq_txrx}.")
+            # 4890 radio exception (confirmed): RBB88 implies 8x8, but a 4890
+            # radio legitimately runs 4x8 (TX=4/RX=8) - only flag when the
+            # actual config drops to 4x4 (TX=RX=4) or otherwise still
+            # mismatches beyond the known 4x8 case.
+            is_4890_4x8_ok = ('4890' in rru_type.upper() and rbb_txrx == '8x8' and ciq_txrx == '4x8')
+            if not is_4890_4x8_ok:
+                mismatches.append(f"RBB type {rbb} implies TX/RX {rbb_txrx} but noOfTxAntennas/noOfRxAntennas={ciq_txrx}.")
         if ciq_tx == '0' and isdlonly != 'TRUE':
             mismatches.append(f"noOfTxAntennas=0 but ISDLONLY='{isdlonly or 'blank'}' (expected TRUE).")
         if rbb_link and radio_port_link and rbb_link != radio_port_link:
