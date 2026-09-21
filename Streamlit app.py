@@ -1521,7 +1521,6 @@ with tab_rfds:
             unsafe_allow_html=True,
         )
         st.markdown(render_rfds_grouped_table(grouped_rows), unsafe_allow_html=True)
-        st.caption('"Losses & Delays" has no extractor in this backend yet — always shows NOT AVAILABLE, not a fabricated pass.')
 
 # ══════════════════════════════════════════════════════════════════════
 # TAB 2 — Audit: Pre checks (AMOS) / CIQ Checks / Audit (Pre vs CIQ) / CR Desc
