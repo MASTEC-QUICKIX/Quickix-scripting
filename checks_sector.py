@@ -2193,13 +2193,21 @@ def check_vonr_vs_ciq(node_id, log_text, ciq_wb):
     NOT off CIQ's own per-cell 'NSA/SA' column - confirmed real gap: a
     real site (HXIN090035F) has AMF + a 7-digit nRTAC in its Pre log
     (genuinely SA, matching the Node Summary's own verdict) while EVERY
-    cell in CIQ's 5G Info still reads 'NSA' (a stale/unfilled CIQ field).
-    Gating on the CIQ column made every cell skip silently and the whole
-    node report 'No SA cells on this node' - a real, worth-surfacing CIQ
-    data-quality gap, not a genuine 'not applicable' site. Now: the node
-    being SA (Pre log evidence) is what makes VoNR applicable at all;
-    CIQ's per-cell column disagreeing with that is itself flagged as a
-    mismatch instead of silently skipping the cell.
+    cell in CIQ's 5G Info still reads 'NSA'. Gating on the CIQ column
+    made every cell skip silently and the whole node report 'No SA cells
+    on this node' even though it plainly is SA.
+
+    This row's own comparison is Pre VoNR vs CIQ VoNR only - CIQ's
+    per-cell 'NSA/SA' column is read for context, never compared here (a
+    stale NSA/SA field with VoNR itself agreeing between Pre and CIQ is
+    not this row's concern). SA being confirmed does NOT mean VoNR is
+    active - confirmed real, correct state: a node can be genuinely SA
+    (AMF + 7-digit TAC provisioned) while VoNR itself is still switched
+    off in Pre, and CIQ's own VoNR column correctly says 'No' to match -
+    that is not a mismatch, it is expected during Pre-script (VoNR isn't
+    turned on until activation), so it's reported INFO ('VoNR: Not
+    activated in Pre'), not MATCH/MISMATCH. A genuine disagreement (Pre
+    says Active but CIQ says No, or vice versa) still flags MISMATCH.
 
     epsFallbackOperation/CXC4012592 are node-wide (not per-cell), so
     pre_vonr is derived once per node and compared against every SA
@@ -2224,21 +2232,19 @@ def check_vonr_vs_ciq(node_id, log_text, ciq_wb):
                  'note': 'Node is NSA (no AMF/7-digit NR TAC in Pre log) - VoNR not applicable.'}]
     for row in cells_on_node:
         cell = row['NRCellDU']
-        ciq_sa = str(row.get('NSA/SA', '')).strip().upper()
         ciq_vonr = str(row.get('VoNR', '') or '').strip()
-        if ciq_sa != 'SA':
-            results.append({'rule': '#55', 'node': node_id, 'cell': cell, 'status': 'MISMATCH',
-                             'note': f"Pre log shows this node is SA (AMF + 7-digit NR TAC), but CIQ marks "
-                                     f"{cell} as '{ciq_sa or 'blank'}' - CIQ NSA/SA column needs updating."})
-            continue
         if pre_vonr is None:
             results.append({'rule': '#55', 'node': node_id, 'cell': cell, 'status': 'SKIPPED',
                              'note': 'epsFallbackOperation/CXC4012592 state not recognized in Pre log - VoNR could not be verified.'})
             continue
         expected = 'Yes' if pre_vonr else 'No'
         if ciq_vonr.upper() == expected.upper():
-            results.append({'rule': '#55', 'node': node_id, 'cell': cell, 'status': 'MATCH',
-                             'note': f'Pre and CIQ both {expected}.'})
+            if pre_vonr:
+                results.append({'rule': '#55', 'node': node_id, 'cell': cell, 'status': 'MATCH',
+                                 'note': 'Pre and CIQ both VoNR Active.'})
+            else:
+                results.append({'rule': '#55', 'node': node_id, 'cell': cell, 'status': 'INFO',
+                                 'note': 'VoNR: Not activated in Pre.'})
         else:
             results.append({'rule': '#55', 'node': node_id, 'cell': cell, 'status': 'MISMATCH',
                              'note': f"Pre log VoNR {expected}, CIQ VoNR {ciq_vonr or 'blank'}."})
