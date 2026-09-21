@@ -886,20 +886,62 @@ IPV6_OAM_FIELDS = ["OAM_ENODEB_SIAD_OAM_VLAN", "IPV6_ENODEB_OAM_SUBNET_61",
 # nodes, MME Region (N2E), NR_SA tab + TAC digit rule, FA Code CIQ-vs-RFDS.
 # ══════════════════════════════════════════════════════════════════════
 
+def _sw_package_family(sw_package):
+    """Board-hardware family signature from the CXP package string
+    (e.g. 'CXP9024418/16_R20C35' -> 'CXP9024418/16', 'CXP2010174/2_R53D39'
+    -> 'CXP2010174/2').
+
+    Confirmed real, per Akshatha's board-type/SW mapping table: THE SAME
+    software release shows a COMPLETELY different sw_version string
+    depending on board generation - a real site's G2 boards (5216/6630,
+    CXP package 'CXP9024418/16...') report sw_version 'RCG123.8' for the
+    identical quarterly release a G3/G4 board (6648/6672, CXP package
+    'CXP2010174/2...') reports as '26.Q2'. So comparing raw sw_version
+    strings across ALL nodes on a site flags a false mismatch on every
+    CRAN/mixed-hardware site (routine and correct - board generations are
+    never expected to share a version STRING) - the real 'are these nodes
+    consistent' question is per hardware family, using the CXP package
+    prefix (before the '_R<revision>' suffix) as that family's key."""
+    if not sw_package or sw_package == 'NOT FOUND':
+        return None
+    return re.split(r'[_\s]', str(sw_package).strip(), maxsplit=1)[0].upper()
+
+
+def _group_sw_by_family(checked):
+    """{family: {sw_version, ...}} for every node with a detected SW
+    version, keyed by _sw_package_family(). A node whose sw_package is
+    itself missing (SW version found some other way, package blank)
+    falls into its own '(unknown board family)' bucket rather than being
+    silently compared against every other family."""
+    by_family = {}
+    for r in checked:
+        if r.get("sw_version") in (None, "NOT FOUND"):
+            continue
+        fam = _sw_package_family(r.get("sw_package")) or "(unknown board family)"
+        by_family.setdefault(fam, set()).add(r.get("sw_version"))
+    return by_family
+
+
 def _sw_consistency_status(sw_version_results):
-    versions = {r.get("sw_version") for r in sw_version_results if r.get("sw_version") not in (None, "NOT FOUND")}
-    if not versions:
+    checked = [r for r in sw_version_results if r.get("sw_version") not in (None, "NOT FOUND")]
+    by_family = _group_sw_by_family(checked)
+    if not by_family:
         return "unknown", "No SW version captured from any Pre kget-all log."
-    if len(versions) > 1:
-        detail = "; ".join(f"{r.get('node')}={r.get('sw_version')}" for r in sw_version_results if r.get("sw_version") not in (None, "NOT FOUND"))
-        return "mismatch", f"Mixed SW versions across Pre nodes: {detail}"
-    return "match", f"All Pre nodes on {versions.pop()}."
+    mixed = {fam: vers for fam, vers in by_family.items() if len(vers) > 1}
+    if mixed:
+        detail = "; ".join(f"{r.get('node')}={r.get('sw_version')}" for r in checked)
+        return "mismatch", f"Mixed SW versions WITHIN the same board family: {detail}"
+    summary = "; ".join(f"{fam}: {vers.pop()}" for fam, vers in sorted(by_family.items()))
+    return "match", f"All Pre nodes on their board family's expected SW ({summary})."
 
 
 def _sw_status_v2(sw_version_results):
     """Confirmed to do BOTH signals, not just one: (1) every node that has a
     Pre log actually shows a detected SW version, AND (2) every detected
-    version agrees across nodes. Either failing is a mismatch.
+    version agrees WITHIN its own board hardware family (see
+    _sw_package_family - NOT a flat compare across every node on the
+    site, which false-flags any site that legitimately mixes board
+    generations). Either failing is a mismatch.
 
     SKIPPED entries (no Pre log at all for this node — confirmed real case:
     a genuinely new node being added in this build, e.g. Pre has 2 nodes
@@ -912,17 +954,20 @@ def _sw_status_v2(sw_version_results):
         return "unknown", "No Pre kget-all logs loaded."
     checked = [r for r in sw_version_results if r.get("status") != "SKIPPED"]
     missing = [r.get("node") for r in checked if r.get("sw_version") in (None, "NOT FOUND")]
-    versions = {r.get("sw_version") for r in checked if r.get("sw_version") not in (None, "NOT FOUND")}
+    have_version = [r for r in checked if r.get("sw_version") not in (None, "NOT FOUND")]
+    by_family = _group_sw_by_family(have_version)
     bad = []
     if missing:
         bad.append(f"No SW version detected for: {', '.join(missing)}")
-    if len(versions) > 1:
-        detail = "; ".join(f"{r.get('node')}={r.get('sw_version')}" for r in checked if r.get("sw_version") not in (None, "NOT FOUND"))
-        bad.append(f"Mixed SW versions across Pre nodes: {detail}")
+    mixed = {fam: vers for fam, vers in by_family.items() if len(vers) > 1}
+    if mixed:
+        detail = "; ".join(f"{r.get('node')}={r.get('sw_version')}" for r in have_version)
+        bad.append(f"Mixed SW versions WITHIN the same board family: {detail}")
     if bad:
         return "mismatch", " | ".join(bad)
-    if versions:
-        return "match", f"All Pre nodes show a SW version, all on {versions.pop()}."
+    if by_family:
+        summary = "; ".join(f"{fam}: {vers.pop()}" for fam, vers in sorted(by_family.items()))
+        return "match", f"All Pre nodes show a SW version, each on its board family's expected release ({summary})."
     return "unknown", "No SW version captured from any Pre kget-all log."
 
 
