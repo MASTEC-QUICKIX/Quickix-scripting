@@ -15,17 +15,33 @@ remains the right source for engineer_comments.py's narrative, which is a
 different question ("what moved, per the CIQ's own bookkeeping") than this
 module's ("show me every Pre value beside its Post value").
 
-One HTML feature is deliberately NOT ported: the "Dual Link in AMOS, Single
-Link in CIQ" comment addendum. It depends on a Pre-side RadioPort (DATA1/
-DATA2) signal that does not exist anywhere in this project's confirmed
-kget-all extraction set — porting it would mean guessing at a command this
-project has never verified against a real log. Flagged here rather than
-silently applied to avoid manufacturing a false Link comparison. Everything
-else (row classification, field-level color coding, RRU swap detection) is
-implemented as extracted below.
+Link (Single/Double) PRE vs POST: NOT the HTML's original "Dual Link in
+AMOS, Single Link in CIQ" comment addendum, which depended on a Pre-side
+RadioPort (DATA1/DATA2) signal — confirmed absent from every kget-all log
+this project has seen, and confirmed NOT reconstructable from a shared-FRU
+heuristic either (tested against a real CIQ: two cells sharing one physical
+RRU in kget-all were both CIQ RadioPort=DATA1, while a single-fed cell
+elsewhere was RadioPort=DATA1/DATA2 — the opposite of what that heuristic
+would predict, so it was dropped rather than shipped as a false signal).
+
+Instead this reuses the two Single/Double Link values THIS PROJECT ALREADY
+COMPUTES independently on each side, from confirmed sources:
+  - Pre:  pe.extract_cell_to_rilink_detail()'s 'rilink_type' (the same
+    value the Pre checks (AMOS) tab's own RiLink column shows) — RiLink
+    row count per FRU, a genuinely different (and confirmed-extractable)
+    physical signal from the DATA1/DATA2 one above.
+  - Post: ciq_checks.apply_link_and_sharing()'s 'link' (the same value the
+    CIQ Checks tab's own Link (Single/Doublelink) column shows) —
+    DATA1/DATA2 RadioPort grouping.
+Comparing these two existing, already-displayed-elsewhere values is a
+different question from the dropped HTML feature above (which needed ONE
+signal present on BOTH sides) - here each side keeps its own real source,
+and this table just shows them together and flags disagreement, exactly
+like every other PRE | POST field in this table.
 """
 import band_labels as bl
 import checks_sector as cs
+import ciq_checks as cc
 import ciq_edp_reader as cer
 import pre_cell_inventory as pci
 import pre_extract as pe
@@ -149,8 +165,8 @@ def _cmp_sector_id(pre, post):
 def _amos_lte_index(node_logs_text):
     """Node logs -> flat list of Pre LTE cell dicts with the exact field
     names compareCellLevel() expects (Cell/SC/CellID/TAC/BW/EARFCN_DL/
-    EARFCN_UL/Pwr/TX/RX/Model), built from this project's own confirmed
-    extraction functions rather than re-deriving them."""
+    EARFCN_UL/Pwr/TX/RX/Model/RiLink), built from this project's own
+    confirmed extraction functions rather than re-deriving them."""
     flat = []
     for node_id, text in (node_logs_text or {}).items():
         cells = [c for c in pci.extract_pre_cells_for_node(text) if not bl.is_5g_cell(c)]
@@ -160,6 +176,12 @@ def _amos_lte_index(node_logs_text):
         sc_by_cell = _extract_sector_carrier_index(text)
         cell_range_by_cell = pe.extract_cell_range(text)
         dss_by_cell = pe.extract_dss_status(text)
+        # Same two-step chain amos_view.build_lte_cell_rows() uses for the
+        # Pre checks (AMOS) tab's own RiLink column - reused here (not
+        # re-derived) so this table's Pre-side Link value can never drift
+        # from what that tab already shows for the same cell.
+        fru_by_cell = pe.extract_cell_to_fru(text)
+        rilink_by_cell = pe.extract_cell_to_rilink_detail(text, fru_by_cell)
         for cell in cells:
             p = params.get(cell, {})
             c = cfg.get(cell, {})
@@ -173,14 +195,15 @@ def _amos_lte_index(node_logs_text):
                 "Model": pe._short_radio_name(radio_by_cell.get(cell)) or "",
                 "CellRange": cell_range_by_cell.get(cell, ""),
                 "DSS": bool(dss_by_cell.get(cell, False)),
+                "RiLink": (rilink_by_cell.get(cell) or {}).get("rilink_type") or "",
             })
     return flat
 
 
 def _amos_nr_index(node_logs_text):
     """Same as _amos_lte_index but for 5G — CellID/DL/UL/BW_DL/BW_UL/Pwr/
-    SSB/Model/CellRange/DSS, matching compareNRCellLevel()'s expected
-    fields."""
+    SSB/Model/CellRange/DSS/RiLink, matching compareNRCellLevel()'s
+    expected fields."""
     flat = []
     for node_id, text in (node_logs_text or {}).items():
         cells = [c for c in pci.extract_pre_cells_for_node(text) if bl.is_5g_cell(c)]
@@ -190,6 +213,8 @@ def _amos_nr_index(node_logs_text):
         radio_by_cell = pe.extract_cell_to_radio(text)
         cell_range_by_cell = pe.extract_cell_range_5g(text)
         dss_by_cell = pe.extract_dss_status(text)
+        fru_by_cell = pe.extract_cell_to_fru(text)
+        rilink_by_cell = pe.extract_cell_to_rilink_detail(text, fru_by_cell)
         for cell in cells:
             p = params.get(cell, {})
             c = cfg.get(cell, {})
@@ -203,8 +228,21 @@ def _amos_nr_index(node_logs_text):
                 "Model": pe._short_radio_name(radio_by_cell.get(cell)) or "",
                 "CellRange": cell_range_by_cell.get(cell, ""),
                 "DSS": bool(dss_by_cell.get(cell, False)),
+                "RiLink": (rilink_by_cell.get(cell) or {}).get("rilink_type") or "",
             })
     return flat
+
+
+def _ciq_link_map(ciq_wb):
+    """{cell: 'Single Link'/'Double Link'} for every LTE+NR cell in the
+    CIQ, from ciq_checks.apply_link_and_sharing() — the exact same
+    computation the CIQ Checks tab's own Link (Single/Doublelink) column
+    already shows, reused rather than re-implemented so the two can never
+    silently drift apart."""
+    lte_rows = cc.build_lte_ciq_rows(ciq_wb)
+    nr_rows = cc.build_nr_ciq_rows(ciq_wb)
+    cc.apply_link_and_sharing(lte_rows, nr_rows)
+    return {r.get("cell"): r.get("link") for r in lte_rows + nr_rows if r.get("cell")}
 
 
 def _extract_sector_carrier_index(text):
@@ -235,6 +273,7 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
     amos = _amos_lte_index(node_logs_text)
     ciq_rows = cer.sheet_rows_as_dicts(ciq_wb["eUtran Parameters"]) if "eUtran Parameters" in ciq_wb.sheetnames else []
     enb_tac_by_id = {str(r.get("eNBId") or "").strip(): r.get("tac") for r in cer.enb_info_rows(ciq_wb)}
+    ciq_link_by_cell = _ciq_link_map(ciq_wb)
 
     # CIQ/Post-side DSS signal: '5G Info' tab's own 'DSS' column names the
     # LTE cell it's paired with ('NO' when not paired) — confirmed real CIQ
@@ -283,6 +322,14 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
         else:
             dss_text, dss_ok = "-", None  # no Pre match - nothing to compare (new cell)
 
+        # Link (Single/Double): Pre side is RiLink row count (pe.extract_
+        # cell_to_rilink_detail, same value the Pre checks tab shows); Post
+        # side is CIQ RadioPort grouping (ciq_checks.apply_link_and_sharing,
+        # same value the CIQ Checks tab shows). Two different, independently
+        # confirmed signals - see this module's docstring for why they're
+        # compared as-is rather than one being re-derived from the other.
+        link_text, link_ok = _cmp(_nz(match["RiLink"]) if match else "", ciq_link_by_cell.get(cell_full))
+
         result.append({
             "node": c.get("Node") or final_pfx, "cell": cell_full,
             "sc": sc_text, "_sc_ok": sc_ok, "cellid": cellid_text, "_cellid_ok": cellid_ok,
@@ -292,7 +339,7 @@ def compare_lte_cell_level(node_logs_text, ciq_wb):
             "rx": rx_text, "_rx_ok": rx_ok, "rru": rru_text, "_rru_ok": rru_ok,
             "cellrange": cellrange_text, "_cellrange_ok": cellrange_ok,
             "dss": dss_text, "_dss_ok": dss_ok,
-            "link": "-", "comment": comment, "row_type": row_type,
+            "link": link_text, "_link_ok": link_ok, "comment": comment, "row_type": row_type,
         })
     return result
 
@@ -318,6 +365,7 @@ def compare_nr_cell_level(node_logs_text, ciq_wb):
     LTE Sector Movement comments) uses the primary node name."""
     amos = _amos_nr_index(node_logs_text)
     ciq_rows = cer.sheet_rows_as_dicts(ciq_wb["5G Info"]) if "5G Info" in ciq_wb.sheetnames else []
+    ciq_link_by_cell = _ciq_link_map(ciq_wb)
 
     # Primary (LTE-paired) node name per gNBId, from Mixed Mode Info - same
     # source ciq_checks._node_name_maps() reads. A gNBId with no Mixed Mode
@@ -365,6 +413,8 @@ def compare_nr_cell_level(node_logs_text, ciq_wb):
         else:
             dss_text, dss_ok = "-", None  # no Pre match - nothing to compare (new cell)
 
+        link_text, link_ok = _cmp(_nz(match["RiLink"]) if match else "", ciq_link_by_cell.get(cell_full))
+
         result.append({
             "node": final_pfx, "cell": cell_full,
             "cellid": cellid_text, "_cellid_ok": cellid_ok, "dl": dl_text, "_dl_ok": dl_ok,
@@ -373,7 +423,7 @@ def compare_nr_cell_level(node_logs_text, ciq_wb):
             "ssb": ssb_text, "_ssb_ok": ssb_ok, "rru": rru_text, "_rru_ok": rru_ok,
             "cellrange": cellrange_text, "_cellrange_ok": cellrange_ok,
             "dss": dss_text, "_dss_ok": dss_ok,
-            "link": "-", "comment": comment, "row_type": row_type,
+            "link": link_text, "_link_ok": link_ok, "comment": comment, "row_type": row_type,
         })
     return result
 
