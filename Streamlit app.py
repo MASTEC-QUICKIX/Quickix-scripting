@@ -397,7 +397,13 @@ def render_cell_pre_post_table(rows, field_columns):
             else:
                 color = "#059669" if ok else "#dc2626"
                 cells += f'<td style="color:{color};font-weight:700;">{esc(r.get(val_key, "-"))}</td>'
-        cells += f"<td>{esc(r.get('link', '-'))}</td><td>{esc(r.get('comment', ''))}</td>"
+        link_ok = r.get("_link_ok")
+        if link_ok is None:
+            link_cell = f"<td>{esc(r.get('link', '-'))}</td>"
+        else:
+            link_color = "#059669" if link_ok else "#dc2626"
+            link_cell = f'<td style="color:{link_color};font-weight:700;">{esc(r.get("link", "-"))}</td>'
+        cells += link_cell + f"<td>{esc(r.get('comment', ''))}</td>"
         body.append(f'<tr style="background:{row_bg};">{cells}</tr>')
     return (f'<div class="qkx-table-wrap"><table class="qkx-table"><thead><tr>{head}</tr></thead>'
             f'<tbody>{"".join(body)}</tbody></table></div>')
@@ -1152,18 +1158,31 @@ def build_consolidated_mismatches(grouped_rows, results, pre_edp_rows=None, edp_
     # SW version (rule #1) never carries MISMATCH on its own raw entries
     # (only INFO/SKIPPED per node) - checklist row 13's "Major showstopper"
     # verdict comes from a cross-node comparison done only inside the
-    # checklist builder (_sw_status_v2: every node's own version must be
-    # detected, and all detected versions must agree). Reused here so this
-    # same finding isn't invisible everywhere except the checklist.
+    # checklist builder (_sw_status_v2). Reused here so this same finding
+    # isn't invisible everywhere except the checklist.
+    #
+    # Must be FAMILY-aware (rc._group_sw_by_family / rc._sw_package_family),
+    # not a flat set-of-all-versions compare - confirmed real false positive
+    # this exact form used to produce: a routine mixed-hardware/CRAN site
+    # (G2 boards on 'RCG123.8', G3/G4 boards on '26.Q1' for the SAME
+    # quarterly release - different board generations never share a
+    # sw_version STRING) showed a green MATCH on the checklist (which
+    # already went family-aware) while this Consolidated Report mismatch
+    # list still flagged 'SW versions disagree across nodes' for the exact
+    # same site, from the flat len(_sw_versions) > 1 check. Only a real
+    # disagreement WITHIN one board family is an actual finding now.
     _sw_checked = [r for r in results.get("sw_version", []) if r.get("status") != "SKIPPED"]
     _sw_missing = [r.get("node") for r in _sw_checked if r.get("sw_version") in (None, "NOT FOUND")]
-    _sw_versions = {r.get("sw_version") for r in _sw_checked if r.get("sw_version") not in (None, "NOT FOUND")}
     if _sw_missing:
         rows.append({"cell": ", ".join(_sw_missing), "source": "CIQ check", "param": "SW Version",
                      "comments": f"No SW version detected for: {', '.join(_sw_missing)}"})
-    if len(_sw_versions) > 1:
+    _sw_have = [r for r in _sw_checked if r.get("sw_version") not in (None, "NOT FOUND")]
+    _sw_by_family = rc._group_sw_by_family(_sw_have)
+    _sw_mixed = {fam: vers for fam, vers in _sw_by_family.items() if len(vers) > 1}
+    if _sw_mixed:
+        detail = "; ".join(f"{r.get('node')}={r.get('sw_version')}" for r in _sw_have)
         rows.append({"cell": "site", "source": "CIQ check", "param": "SW Version",
-                     "comments": f"SW versions disagree across nodes: {sorted(_sw_versions)}"})
+                     "comments": f"Mixed SW versions WITHIN the same board family: {detail}"})
 
     # one fixed bucket. Routed to whichever source(s) actually disagree
     # with CIQ, same comparison check_primary_secondary itself already
